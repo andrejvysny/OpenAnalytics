@@ -2,7 +2,7 @@
 # OpenAnalytics CLI installer.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/andrejvysny/OpenAnalytics/master/scripts/install.sh | sh
+#   curl -fsSL https://github.com/andrejvysny/OpenAnalytics/releases/latest/download/install.sh | sh
 #
 # Flags (set via env vars before piping to sh):
 #   OA_VERSION=v0.1.0       # specific release tag (defaults to "latest")
@@ -39,24 +39,62 @@ ASSET="oa-${os}-${arch}${EXT}"
 
 mkdir -p "$INSTALL_DIR"
 TARGET="$INSTALL_DIR/oa${EXT}"
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
 
 if [ "$VERSION" = "latest" ]; then
   URL="https://github.com/${OWNER}/${REPO}/releases/latest/download/${ASSET}"
+  SUMS_URL="https://github.com/${OWNER}/${REPO}/releases/latest/download/SHA256SUMS"
 else
   URL="https://github.com/${OWNER}/${REPO}/releases/download/${VERSION}/${ASSET}"
+  SUMS_URL="https://github.com/${OWNER}/${REPO}/releases/download/${VERSION}/SHA256SUMS"
 fi
+
+download() {
+  src="$1"
+  dst="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --progress-bar -o "$dst" "$src"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q --show-progress -O "$dst" "$src"
+  else
+    echo "error: need curl or wget" >&2
+    exit 1
+  fi
+}
 
 echo "Downloading ${ASSET}"
 echo "  from ${URL}"
-if command -v curl >/dev/null 2>&1; then
-  curl -fL --progress-bar -o "$TARGET" "$URL"
-elif command -v wget >/dev/null 2>&1; then
-  wget -q --show-progress -O "$TARGET" "$URL"
-else
-  echo "error: need curl or wget" >&2
+download "$URL" "$TMPDIR/$ASSET"
+
+echo "Downloading SHA256SUMS"
+echo "  from ${SUMS_URL}"
+download "$SUMS_URL" "$TMPDIR/SHA256SUMS"
+
+expected="$(awk -v asset="$ASSET" '$2 == asset { print $1; exit }' "$TMPDIR/SHA256SUMS")"
+if [ -z "$expected" ]; then
+  echo "error: SHA256SUMS does not contain ${ASSET}" >&2
   exit 1
 fi
-chmod +x "$TARGET"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual="$(sha256sum "$TMPDIR/$ASSET" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+  actual="$(shasum -a 256 "$TMPDIR/$ASSET" | awk '{print $1}')"
+else
+  echo "error: need sha256sum or shasum for verification" >&2
+  exit 1
+fi
+if [ "$actual" != "$expected" ]; then
+  echo "error: checksum verification failed for ${ASSET}" >&2
+  echo "  expected: $expected" >&2
+  echo "  actual:   $actual" >&2
+  exit 1
+fi
+echo "✓ SHA256 verified"
+
+chmod +x "$TMPDIR/$ASSET"
+mv "$TMPDIR/$ASSET" "$TARGET.tmp"
+mv "$TARGET.tmp" "$TARGET"
 
 echo
 echo "✓ Installed: $TARGET"
@@ -88,7 +126,7 @@ maybe_install_service() {
         echo
         echo "Skipping launchd service install (run interactively or set OA_FORCE_SERVICE=1)."
         echo "Manual install:"
-        echo "  curl -fsSL https://raw.githubusercontent.com/${OWNER}/${REPO}/master/scripts/install.sh | OA_FORCE_SERVICE=1 sh"
+        echo "  curl -fsSL https://github.com/${OWNER}/${REPO}/releases/latest/download/install.sh | OA_FORCE_SERVICE=1 sh"
         return 0
       fi
       mkdir -p "$(dirname "$PLIST")"

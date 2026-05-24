@@ -12,6 +12,8 @@ export function runStatus(): void {
   consola.info('api url:     ', cfg.apiUrl);
   consola.info('api key:     ', cfg.apiKey ? cfg.apiKey.slice(0, 11) + '…' : '(none)');
   consola.info('workspace:   ', cfg.workspaceId ?? '(personal)');
-  consola.info('host:        ', cfg.host);
+  consola.info('machine id:  ', cfg.machineId);
+  consola.info('hostname:    ', cfg.sendHostname ? cfg.host : '(not sent)');
+  consola.info('project name:', cfg.sendProjectName ? 'sent' : 'not sent');
   consola.info(`transcripts: ${files.length} total, ${pending.length} pending sync`);
 }

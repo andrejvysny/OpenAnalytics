@@ -82,6 +82,7 @@ export const requests = pgTable('requests', {
   outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
   cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
   cacheCreationTokens: bigint('cache_creation_tokens', { mode: 'number' }).notNull().default(0),
+  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
   linesAdded: integer('lines_added').notNull().default(0),
   linesRemoved: integer('lines_removed').notNull().default(0),
 });

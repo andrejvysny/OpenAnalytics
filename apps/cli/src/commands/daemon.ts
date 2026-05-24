@@ -9,12 +9,16 @@ export async function runDaemon(): Promise<void> {
   consola.info(`watching ${root}`);
 
   // Initial sync of everything pending.
-  await runSync();
+  await runSync().catch((err) => {
+    consola.error('initial sync failed:', (err as Error).message);
+  });
 
   // Debounced sync trigger.
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let interval: ReturnType<typeof setInterval> | null = null;
   let syncing = false;
   let pendingAgain = false;
+  let activeSync: Promise<void> | null = null;
 
   const trigger = () => {
     if (timer) clearTimeout(timer);
@@ -24,11 +28,13 @@ export async function runDaemon(): Promise<void> {
         return;
       }
       syncing = true;
+      activeSync = runSync();
       try {
-        await runSync();
+        await activeSync;
       } catch (err) {
         consola.error('sync failed:', (err as Error).message);
       } finally {
+        activeSync = null;
         syncing = false;
         if (pendingAgain) {
           pendingAgain = false;
@@ -38,7 +44,7 @@ export async function runDaemon(): Promise<void> {
     }, 1500);
   };
 
-  const watcher = chokidar.watch(join(root, '*', '*.jsonl'), {
+  const watcher = chokidar.watch(join(root, '**', '*.jsonl'), {
     persistent: true,
     awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
     ignoreInitial: true,
@@ -47,12 +53,15 @@ export async function runDaemon(): Promise<void> {
 
   const shutdown = async () => {
     consola.info('shutting down…');
+    if (timer) clearTimeout(timer);
+    if (interval) clearInterval(interval);
     await watcher.close();
+    if (activeSync) await activeSync.catch(() => undefined);
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
   // Idle keepalive — periodic safety sync every 5 min in case watcher misses something.
-  setInterval(trigger, 5 * 60 * 1000);
+  interval = setInterval(trigger, 5 * 60 * 1000);
 }

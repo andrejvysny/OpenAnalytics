@@ -153,11 +153,12 @@ invitesRoute.post('/:token/accept', async (c) => {
     )
     .limit(1);
   if (!existing[0]) {
+    const acceptedDate = new Date().toISOString().slice(0, 10);
     await db.insert(schema.workspaceMembers).values({
       workspaceId: inv.workspaceId,
       userId,
       role: inv.role,
-      trackingFrom: inv.trackingFrom,
+      trackingFrom: acceptedDate,
     });
   }
   await db

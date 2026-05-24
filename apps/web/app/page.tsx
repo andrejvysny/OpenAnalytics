@@ -17,6 +17,14 @@ interface HeatmapResp {
   days: { date: string; prompts: number; cost: number }[];
 }
 
+interface PlanSummaryResp {
+  ok: boolean;
+  workspace: { id: string; name: string };
+  subscription: { planName: string; monthlyPriceUsd: number };
+  totals: { actualUsageCostUsd: number; costUtilizationPercent: number; rawTokens: number };
+  members: { userId: string }[];
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function Page() {
@@ -27,6 +35,12 @@ export default async function Page() {
 
   const overview = await api<OverviewResp>('/api/overview');
   const heat = await api<HeatmapResp>('/api/heatmap?year=' + new Date().getUTCFullYear());
+  const sharedPlans = await Promise.all(
+    workspaces.filter((w) => !w.isPersonal).map((w) => api<PlanSummaryResp>(`/api/plan/${w.id}/split`)),
+  );
+  const activePlan = sharedPlans
+    .filter((p): p is PlanSummaryResp => p !== null)
+    .sort((a, b) => b.totals.actualUsageCostUsd - a.totals.actualUsageCostUsd)[0];
 
   if (!overview) {
     return (
@@ -87,6 +101,33 @@ export default async function Page() {
           <span className="pill muted">{Number(all.activeDays)} active days</span>
         </div>
       </div>
+
+      {activePlan && (
+        <div className="panel plan-hero" style={{ marginBottom: 18 }}>
+          <div className="donut" style={{ background: `conic-gradient(var(--accent) ${Math.min(100, activePlan.totals.costUtilizationPercent)}%, #202532 0)` }}>
+            <div className="donut-center">
+              <strong>{Math.round(activePlan.totals.costUtilizationPercent)}%</strong>
+              <span>used</span>
+            </div>
+          </div>
+          <div>
+            <div className="flex wrap">
+              <h2 style={{ margin: 0 }}>{activePlan.workspace.name}</h2>
+              <span className="pill">{activePlan.subscription.planName}</span>
+            </div>
+            <div className="hero-amount" style={{ marginTop: 8 }}>
+              {money(activePlan.totals.actualUsageCostUsd)}{' '}
+              <span className="muted">/ {money(activePlan.subscription.monthlyPriceUsd)}</span>
+            </div>
+            <div className="muted" style={{ marginTop: 6 }}>
+              Most active shared plan · {tokens(activePlan.totals.rawTokens)} · {activePlan.members.length} members
+            </div>
+          </div>
+          <div className="flex" style={{ justifyContent: 'flex-end' }}>
+            <a className="tab" href={`/plan/${activePlan.workspace.id}`}>Open plan</a>
+          </div>
+        </div>
+      )}
 
       <div className="section-label">Today</div>
       <div className="stats-grid">

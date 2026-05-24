@@ -25,9 +25,16 @@ export interface AggregatorState {
   prompts: Map<string, Prompt>;
   requests: Request[];
   subagents: Map<string, number>;
+  hashPath: (path: string) => string;
+  includeProjectName: boolean;
 }
 
-export function newState(session_id: string): AggregatorState {
+export interface AggregatorOptions {
+  hashPath?: (path: string) => string;
+  includeProjectName?: boolean;
+}
+
+export function newState(session_id: string, opts: AggregatorOptions = {}): AggregatorState {
   return {
     session_id,
     path_hash: null,
@@ -49,6 +56,8 @@ export function newState(session_id: string): AggregatorState {
     prompts: new Map(),
     requests: [],
     subagents: new Map(),
+    hashPath: opts.hashPath ?? fnv1aHex,
+    includeProjectName: opts.includeProjectName === true,
   };
 }
 
@@ -60,7 +69,8 @@ function bumpTs(state: AggregatorState, ts: string | undefined) {
 
 function ensurePath(state: AggregatorState, cwd: string | undefined) {
   if (state.path_hash || !cwd) return;
-  state.path_hash = fnv1aHex(cwd);
+  state.path_hash = state.hashPath(cwd);
+  if (!state.includeProjectName) return;
   const trimmed = cwd.replace(/[\\/]+$/, '');
   const idx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
   state.project_name = idx >= 0 ? trimmed.slice(idx + 1) : trimmed;

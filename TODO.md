@@ -17,7 +17,7 @@ Track via tasks; this is the human-readable mirror.
 ## v0.2 backlog
 
 - Email adapter (verification, password reset, invite emails).
-- `oa service install/uninstall` for launchd/systemd/nssm.
+- Windows `oa service install/uninstall` automation (macOS/Linux done).
 - `/insights` all-time page, `/projects` list + detail pages.
 - Real-time timeline (SSE).
 - GitHub README SVG embed.

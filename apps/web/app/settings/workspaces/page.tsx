@@ -7,14 +7,19 @@ async function createWorkspaceAction(formData: FormData) {
   'use server';
   const name = String(formData.get('name') ?? '');
   const slug = String(formData.get('slug') ?? '');
-  const budget = Number(formData.get('budget') ?? 0);
-  const tier = String(formData.get('tier') ?? '');
+  const monthlyPriceUsd = Number(formData.get('monthlyPriceUsd') ?? 0);
+  const planKind = String(formData.get('planKind') ?? 'custom');
+  const planName = String(formData.get('planName') ?? '');
+  const splitMode = String(formData.get('splitMode') ?? 'usage');
+  const billingCycleDay = Number(formData.get('billingCycleDay') ?? 1);
   await apiPost('/api/workspaces', {
     name,
     slug,
-    monthlyBudgetUsd: budget > 0 ? budget : undefined,
-    planTier: tier || undefined,
-    billingCycleDay: 1,
+    planKind,
+    planName: planName || undefined,
+    monthlyPriceUsd: monthlyPriceUsd > 0 ? monthlyPriceUsd : undefined,
+    splitMode,
+    billingCycleDay,
   });
   redirect('/settings/workspaces');
 }
@@ -89,8 +94,8 @@ export default async function Page({
             <tr>
               <th>Name</th>
               <th>Slug</th>
-              <th>Tier</th>
-              <th>Budget</th>
+              <th>Plan</th>
+              <th>Price</th>
               <th>Role</th>
               <th></th>
             </tr>
@@ -102,10 +107,10 @@ export default async function Page({
                 <td>
                   <span className="code">{w.slug}</span>
                 </td>
-                <td>{w.planTier ?? <span className="muted">—</span>}</td>
+                <td>{w.planName ?? <span className="muted">—</span>}</td>
                 <td>
-                  {w.monthlyBudgetUsd ? (
-                    `$${w.monthlyBudgetUsd}/mo`
+                  {w.monthlyPriceUsd ? (
+                    `$${w.monthlyPriceUsd}/mo`
                   ) : (
                     <span className="muted">—</span>
                   )}
@@ -142,13 +147,36 @@ export default async function Page({
             </div>
             <div className="panel-row cols-2">
               <div className="field">
-                <label>Monthly budget (USD)</label>
-                <input name="budget" type="number" min="0" placeholder="100" />
+                <label>Plan preset</label>
+                <select name="planKind" defaultValue="max_5x">
+                  <option value="pro">Claude Pro</option>
+                  <option value="max_5x">Claude Max 5x</option>
+                  <option value="max_20x">Claude Max 20x</option>
+                  <option value="custom">Custom</option>
+                </select>
               </div>
               <div className="field">
-                <label>Plan tier</label>
-                <input name="tier" placeholder="Max 5x" />
+                <label>Plan name</label>
+                <input name="planName" placeholder="Claude Max 5x" />
               </div>
+            </div>
+            <div className="panel-row cols-2">
+              <div className="field">
+                <label>Monthly price (USD)</label>
+                <input name="monthlyPriceUsd" type="number" min="0" step="0.01" placeholder="100" />
+              </div>
+              <div className="field">
+                <label>Billing cycle day</label>
+                <input name="billingCycleDay" type="number" min="1" max="28" defaultValue="1" />
+              </div>
+            </div>
+            <div className="field">
+              <label>Split mode</label>
+              <select name="splitMode" defaultValue="usage">
+                <option value="usage">Usage-based</option>
+                <option value="equal">Equal split</option>
+                <option value="custom_weights">Custom weights</option>
+              </select>
             </div>
             <button className="primary" type="submit">
               Create workspace

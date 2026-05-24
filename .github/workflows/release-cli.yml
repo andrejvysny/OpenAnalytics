@@ -80,7 +80,9 @@ jobs:
           set -e
           mkdir -p release
           find dist -type f -exec mv {} release/ \;
+          cp scripts/install.sh release/install.sh
           chmod +x release/oa-darwin-* release/oa-linux-* 2>/dev/null || true
+          chmod +x release/install.sh
           cd release
           ls -lh
           sha256sum oa-* > SHA256SUMS

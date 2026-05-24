@@ -1,12 +1,17 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 export interface CliConfig {
   apiUrl: string;
   apiKey: string | null;
   workspaceId: string | null;
   host: string;
+  machineId: string;
+  sendHostname: boolean;
+  sendProjectName: boolean;
+  workspaceSalt: string | null;
 }
 
 const APP = 'openanalytics';
@@ -39,6 +44,10 @@ export function loadConfig(): CliConfig {
       apiKey: null,
       workspaceId: null,
       host: hostname(),
+      machineId: randomUUID(),
+      sendHostname: false,
+      sendProjectName: false,
+      workspaceSalt: null,
     };
   }
   const data = JSON.parse(readFileSync(p, 'utf8')) as Partial<CliConfig>;
@@ -47,6 +56,10 @@ export function loadConfig(): CliConfig {
     apiKey: data.apiKey ?? null,
     workspaceId: data.workspaceId ?? null,
     host: data.host ?? hostname(),
+    machineId: data.machineId ?? randomUUID(),
+    sendHostname: data.sendHostname === true,
+    sendProjectName: data.sendProjectName === true,
+    workspaceSalt: data.workspaceSalt ?? null,
   };
 }
 

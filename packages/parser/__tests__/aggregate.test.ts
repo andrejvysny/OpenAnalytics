@@ -20,8 +20,13 @@ describe('claude-code aggregator (minimal fixture)', () => {
 
   it('hashes the working directory (never stores raw path)', () => {
     expect(session.path_hash).toBe(fnv1aHex('/Users/test/proj'));
-    expect(session.project_name).toBe('proj');
+    expect(session.project_name).toBeUndefined();
     expect(JSON.stringify(session)).not.toContain('/Users/test');
+  });
+
+  it('can opt into project basename for trusted local use', () => {
+    const named = parseTranscript(sid, text, { includeProjectName: true });
+    expect(named.project_name).toBe('proj');
   });
 
   it('captures token totals', () => {
@@ -48,6 +53,16 @@ describe('claude-code aggregator (minimal fixture)', () => {
     expect(session.prompts).toHaveLength(2);
     expect(session.prompts[0]?.length).toBe('Hello world'.length);
     expect(session.prompts[1]?.length).toBe('second prompt'.length);
+  });
+
+  it('does not serialize prompt text, file contents, assistant text, or raw file paths', () => {
+    const payload = JSON.stringify(session);
+    expect(payload).not.toContain('Hello world');
+    expect(payload).not.toContain('second prompt');
+    expect(payload).not.toContain('console.log');
+    expect(payload).not.toContain('sure');
+    expect(payload).not.toContain('/Users/test');
+    expect(payload).not.toContain('a.ts');
   });
 
   it('attaches requests to prompts', () => {

@@ -1,6 +1,7 @@
 import {
   date,
   integer,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -20,6 +21,10 @@ export const workspaces = pgTable('workspaces', {
   ownerId: uuid('owner_id')
     .notNull()
     .references(() => users.id, { onDelete: 'restrict' }),
+  planKind: varchar('plan_kind', { length: 32 }).notNull().default('custom'),
+  planName: varchar('plan_name', { length: 64 }),
+  monthlyPriceUsd: numeric('monthly_price_usd', { precision: 12, scale: 2 }),
+  splitMode: varchar('split_mode', { length: 32 }).notNull().default('usage'),
   planTier: varchar('plan_tier', { length: 64 }),
   monthlyBudgetUsd: integer('monthly_budget_usd'),
   billingCycleDay: integer('billing_cycle_day').notNull().default(1),
@@ -38,6 +43,7 @@ export const workspaceMembers = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     role: memberRole('role').notNull().default('member'),
+    expectedShareBps: integer('expected_share_bps'),
     trackingFrom: date('tracking_from').notNull(),
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
   },

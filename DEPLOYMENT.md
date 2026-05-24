@@ -40,7 +40,7 @@ That prints the API key needed for the CLI.
 ## Quick install — CLI
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/andrejvysny/openanalytics/main/scripts/install.sh | sh
+curl -fsSL https://github.com/andrejvysny/OpenAnalytics/releases/latest/download/install.sh | sh
 oa login --api-url https://oa.example.com --api-key oa_live_…
 oa import         # backfill ~/.claude/projects/
 oa daemon         # watch + sync continuously
@@ -85,7 +85,7 @@ Set `TRUST_PROXY=true` in the API env so it honors `X-Forwarded-For` for rate li
 
 ## Multi-machine usage
 
-Each user can have multiple API keys (one per machine). Sessions are natural-keyed by their UUID and scoped by `user_id`, so the same user pushing from N machines automatically merges into one unified view. The `host` column lets the dashboard break down per-machine usage.
+Each user can have multiple API keys (one per machine). Sessions are natural-keyed by their UUID and scoped by `user_id`, so the same user pushing from N machines automatically merges into one unified view. The `host` column stores a random machine id by default; raw hostname is opt-in.
 
 ## Updates
 
@@ -105,5 +105,5 @@ docker compose -f compose.yml exec postgres pg_dump -U oa oa | gzip > oa-$(date 
 ## Releases & versioning
 
 - `latest` tag follows `master`.
-- Tagged releases (`v0.1.0`, `v0.2.0`) ship the CLI binaries as GitHub Release assets and tag the images accordingly.
+- Tagged releases ship the CLI binaries, `SHA256SUMS`, and `install.sh` as GitHub Release assets and tag the images accordingly.
 - Docker images use immutable digests; pin in `compose.yml` for reproducible deploys.

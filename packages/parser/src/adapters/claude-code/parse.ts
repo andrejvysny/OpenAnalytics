@@ -1,10 +1,14 @@
 import type { Session } from '@oa/schema';
-import { applyLine, finalize, newState, type AggregatorState } from './aggregate.js';
+import { applyLine, finalize, newState, type AggregatorOptions, type AggregatorState } from './aggregate.js';
 
 // Parse a complete transcript file content into a single Session.
 // Caller is responsible for providing the session_id (== file basename without .jsonl).
-export function parseTranscript(sessionId: string, content: string): Session {
-  const state = newState(sessionId);
+export function parseTranscript(
+  sessionId: string,
+  content: string,
+  opts: AggregatorOptions = {},
+): Session {
+  const state = newState(sessionId, opts);
   for (const line of splitLines(content)) applyLine(state, line);
   return finalize(state);
 }

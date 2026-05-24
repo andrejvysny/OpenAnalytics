@@ -169,6 +169,24 @@ a:hover {
   color: var(--muted);
   line-height: 1.2;
 }
+.avatar.small {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-hi);
+  font-size: 11px;
+}
+.avatar-stack {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.avatar-stack .avatar {
+  margin-right: -6px;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.avatar-stack .muted {
+  margin-left: 12px;
+}
 
 button.signout {
   width: 100%;
@@ -276,6 +294,73 @@ button.signout:hover {
   }
 }
 
+/* PLAN */
+.plan-hero {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 22px;
+  align-items: center;
+  border-color: rgba(79, 140, 255, 0.35);
+  background: radial-gradient(circle at 10% 10%, rgba(79, 140, 255, 0.08), transparent 35%), var(--panel);
+}
+.hero-amount {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.donut {
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.donut-center {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: var(--panel);
+  display: grid;
+  place-items: center;
+  align-content: center;
+}
+.donut-center strong {
+  font-size: 24px;
+  line-height: 1;
+}
+.donut-center span {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.plan-meta {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.plan-meta > div {
+  background: rgba(0, 0, 0, 0.18);
+  padding: 12px 14px;
+}
+.plan-meta span {
+  display: block;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 10.5px;
+}
+.plan-meta strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+}
+
 /* TABLE */
 table.data {
   width: 100%;
@@ -344,6 +429,7 @@ input[type='text'],
 input[type='email'],
 input[type='password'],
 input[type='number'],
+input[type='date'],
 select {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -431,6 +517,12 @@ button.ghost:hover {
   justify-content: space-between;
 }
 .wrap {
+  flex-wrap: wrap;
+}
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
 }
 

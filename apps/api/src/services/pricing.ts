@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lte, or } from 'drizzle-orm';
 import { schema } from '@oa/db';
 import type { Db } from '../db';
 
@@ -28,7 +28,7 @@ const MEMO = new Map<
 const TTL_MS = 60_000;
 
 async function loadPrice(db: Db, agentKind: string, model: string, at: Date) {
-  const key = `${agentKind}::${model}::${at.toISOString().slice(0, 10)}`;
+  const key = `${agentKind}::${model}::${at.toISOString()}`;
   const cached = MEMO.get(key);
   const now = Date.now();
   if (cached && now - cached.fetchedAt < TTL_MS) return cached.row;
@@ -41,7 +41,7 @@ async function loadPrice(db: Db, agentKind: string, model: string, at: Date) {
         eq(schema.modelPrices.agentKind, agentKind),
         eq(schema.modelPrices.model, model),
         lte(schema.modelPrices.effectiveFrom, at),
-        or(isNull(schema.modelPrices.effectiveTo), lte(schema.modelPrices.effectiveTo, at)),
+        or(isNull(schema.modelPrices.effectiveTo), gt(schema.modelPrices.effectiveTo, at)),
       ),
     )
     .orderBy(desc(schema.modelPrices.effectiveFrom))

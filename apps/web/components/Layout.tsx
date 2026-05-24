@@ -12,8 +12,11 @@ export interface Workspace {
   slug: string;
   isPersonal: number;
   role?: string;
-  planTier?: string | null;
-  monthlyBudgetUsd?: number | null;
+  planKind?: string;
+  planName?: string | null;
+  monthlyPriceUsd?: number | null;
+  splitMode?: string;
+  billingCycleDay?: number;
 }
 
 function initials(name: string): string {

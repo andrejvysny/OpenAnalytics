@@ -6,29 +6,67 @@ export interface SyncOptions {
   workspaceId: string | null;
 }
 
+export async function fetchWorkspaceSalt(opts: SyncOptions): Promise<string> {
+  const url = new URL(`${opts.apiUrl}/api/sync/salt`);
+  if (opts.workspaceId) url.searchParams.set('workspace_id', opts.workspaceId);
+  const res = await fetch(url, {
+    headers: {
+      authorization: `Bearer ${opts.apiKey}`,
+      'x-oa-cli-version': '0.1.0',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`salt fetch failed: ${res.status} ${text}`);
+  }
+  const body = (await res.json()) as { salt?: unknown };
+  if (typeof body.salt !== 'string' || body.salt.length === 0) {
+    throw new Error('salt fetch failed: invalid response');
+  }
+  return body.salt;
+}
+
 export async function postSync(
   opts: SyncOptions,
   sessions: Session[],
   attempt = 1,
 ): Promise<{ accepted: number; ignored: number }> {
   const body: SyncRequest = { workspace_id: opts.workspaceId, sessions };
-  const res = await fetch(`${opts.apiUrl}/api/sync`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${opts.apiKey}`,
-      'content-type': 'application/json',
-      'x-oa-cli-version': '0.1.0',
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  let res: Response;
+  try {
+    res = await fetch(`${opts.apiUrl}/api/sync`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${opts.apiKey}`,
+        'content-type': 'application/json',
+        'x-oa-cli-version': '0.1.0',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (attempt < 6) {
+      await backoff(attempt);
+      return postSync(opts, sessions, attempt + 1);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (res.status === 200) {
     return (await res.json()) as { accepted: number; ignored: number };
   }
-  if (res.status >= 500 && attempt < 6) {
-    const delay = Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
-    await new Promise((r) => setTimeout(r, delay));
+  if ((res.status === 429 || res.status >= 500) && attempt < 6) {
+    await backoff(attempt);
     return postSync(opts, sessions, attempt + 1);
   }
   const text = await res.text().catch(() => '');
   throw new Error(`sync failed: ${res.status} ${text}`);
+}
+
+async function backoff(attempt: number): Promise<void> {
+  const delay = Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
+  await new Promise((resolve) => setTimeout(resolve, delay));
 }

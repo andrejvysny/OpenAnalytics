@@ -49,6 +49,28 @@ export async function apiPost<T>(
   return { ok: true, data, setCookie };
 }
 
+export async function apiPatch<T>(
+  path: string,
+  body: unknown,
+): Promise<{ ok: boolean; data?: T; error?: string }> {
+  const c = await cookies();
+  const cookieHeader = c
+    .getAll()
+    .map((x) => `${x.name}=${x.value}`)
+    .join('; ');
+  const res = await fetch(`${API}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      ...(cookieHeader ? { cookie: cookieHeader } : {}),
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+  if (!res.ok) return { ok: false, error: await res.text().catch(() => '') };
+  return { ok: true, data: (await res.json()) as T };
+}
+
 export async function readMe(): Promise<{ id: string; email: string; name: string } | null> {
   const r = await api<{ ok: boolean; user: { id: string; email: string; name: string } }>(
     '/api/auth/me',
