@@ -2,7 +2,8 @@ import { redirect } from 'next/navigation';
 import { api, readMe } from '../lib/api';
 import { DashLayout, type Workspace } from '../components/Layout';
 import { PlanHero } from '../components/PlanHero';
-import { money, num, tokens } from '../lib/fmt';
+import { MetricCard, MetricPanel, MetricsList } from '../components/MetricsBlock';
+import { money, moneyExact, num, tokens } from '../lib/fmt';
 
 interface OverviewResp {
   ok: boolean;
@@ -125,6 +126,7 @@ export default async function Page() {
           rightLabel={`${activePlan.members.length} members`}
           editHref={`/plan/${activePlan.workspace.id}`}
           editLabel="Open plan"
+          apiEquivalent
         />
       ) : personalPlan ? (
         <PlanHero
@@ -136,6 +138,10 @@ export default async function Page() {
           periodTo={personalPlan.period.to}
           daysRemaining={personalPlan.period.daysRemaining}
           editHref="/settings/plan"
+          apiEquivalent={
+            personalPlan.subscription.planKind !== 'api' &&
+            personalPlan.subscription.planKind !== 'custom'
+          }
         />
       ) : null}
 
@@ -160,23 +166,48 @@ export default async function Page() {
             <span className="diff-minus">−{num(today.removed)}</span>
           </div>
         </div>
-        <div className="stat">
-          <div className="label">Input tokens</div>
+        <div
+          className="stat"
+          title="Anthropic 'input_tokens' — uncached residual only (the rest is served from cache)"
+        >
+          <div className="label">New input</div>
           <div className="value">{tokens(today.input)}</div>
+        </div>
+        <div
+          className="stat"
+          title="input + cache_read + cache_write — total tokens Claude actually saw"
+        >
+          <div className="label">Context processed</div>
+          <div className="value">
+            {tokens(Number(today.input) + Number(today.cache_read) + Number(today.cache_creation))}
+          </div>
         </div>
         <div className="stat">
           <div className="label">Output tokens</div>
           <div className="value">{tokens(today.output)}</div>
         </div>
-        <div className="stat" title="5m + 1h cache writes combined">
+        <div className="stat" title="5-minute and 1-hour TTL cache writes">
           <div className="label">Cache write</div>
           <div className="value">{tokens(today.cache_creation)}</div>
+          <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>
+            5m {tokens(today.cache_creation_5m)} · 1h {tokens(today.cache_creation_1h)}
+          </div>
         </div>
         <div className="stat">
           <div className="label">Cache read</div>
           <div className="value">{tokens(today.cache_read)}</div>
         </div>
       </div>
+
+      <CostBreakdown
+        title="Today cost breakdown"
+        input={Number(today.cost_input)}
+        output={Number(today.cost_output)}
+        cacheRead={Number(today.cost_cache_read)}
+        cache5m={Number(today.cost_cache_creation_5m)}
+        cache1h={Number(today.cost_cache_creation_1h)}
+        total={Number(today.cost)}
+      />
 
       <div className="section-label">All-time</div>
       <div className="stats-grid">
@@ -196,23 +227,48 @@ export default async function Page() {
           <div className="label">Active days</div>
           <div className="value">{num(all.activeDays)}</div>
         </div>
-        <div className="stat">
-          <div className="label">Input tokens</div>
+        <div
+          className="stat"
+          title="Anthropic 'input_tokens' — uncached residual only (the rest is served from cache)"
+        >
+          <div className="label">New input</div>
           <div className="value">{tokens(all.input)}</div>
+        </div>
+        <div
+          className="stat"
+          title="input + cache_read + cache_write — total tokens Claude actually saw"
+        >
+          <div className="label">Context processed</div>
+          <div className="value">
+            {tokens(Number(all.input) + Number(all.cache_read) + Number(all.cache_creation))}
+          </div>
         </div>
         <div className="stat">
           <div className="label">Output tokens</div>
           <div className="value">{tokens(all.output)}</div>
         </div>
-        <div className="stat" title="5m + 1h cache writes combined">
+        <div className="stat" title="5-minute and 1-hour TTL cache writes">
           <div className="label">Cache write</div>
           <div className="value">{tokens(all.cache_creation)}</div>
+          <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>
+            5m {tokens(all.cache_creation_5m)} · 1h {tokens(all.cache_creation_1h)}
+          </div>
         </div>
         <div className="stat">
           <div className="label">Cache read</div>
           <div className="value">{tokens(all.cache_read)}</div>
         </div>
       </div>
+
+      <CostBreakdown
+        title="All-time cost breakdown"
+        input={Number(all.cost_input)}
+        output={Number(all.cost_output)}
+        cacheRead={Number(all.cost_cache_read)}
+        cache5m={Number(all.cost_cache_creation_5m)}
+        cache1h={Number(all.cost_cache_creation_1h)}
+        total={Number(all.cost)}
+      />
 
       <div className="panel">
         <div className="flex spread" style={{ marginBottom: 12 }}>
@@ -271,6 +327,71 @@ export default async function Page() {
         </table>
       </div>
     </DashLayout>
+  );
+}
+
+function CostBreakdown({
+  title,
+  input,
+  output,
+  cacheRead,
+  cache5m,
+  cache1h,
+  total,
+}: {
+  title: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cache5m: number;
+  cache1h: number;
+  total: number;
+}) {
+  if (total <= 0) return null;
+  const rows: { label: string; cost: number; hint: string }[] = [
+    { label: 'New input', cost: input, hint: 'base input rate × uncached tokens' },
+    { label: 'Output', cost: output, hint: '5× base input rate' },
+    { label: 'Cache read', cost: cacheRead, hint: '0.1× base input rate' },
+    { label: 'Cache write · 5m', cost: cache5m, hint: '1.25× base input rate' },
+    { label: 'Cache write · 1h', cost: cache1h, hint: '2× base input rate' },
+  ];
+  const max = Math.max(...rows.map((r) => r.cost), 1);
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <h2 style={{ marginTop: 0, marginBottom: 12, fontSize: 15 }}>{title}</h2>
+      <table className="data">
+        <tbody>
+          {rows.map((r) => {
+            const pctTotal = total > 0 ? (r.cost / total) * 100 : 0;
+            const w = (r.cost / max) * 100;
+            return (
+              <tr key={r.label}>
+                <td title={r.hint}>{r.label}</td>
+                <td className="num cost">{moneyExact(r.cost)}</td>
+                <td className="num muted" style={{ width: 70 }}>
+                  {pctTotal.toFixed(1)}%
+                </td>
+                <td style={{ width: 200 }}>
+                  <div className="bar-track">
+                    <div className="bar-fill" style={{ width: `${w}%` }} />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+          <tr style={{ borderTop: '1px solid var(--border)' }}>
+            <td>
+              <strong>Total</strong>
+            </td>
+            <td className="num cost">
+              <strong>{moneyExact(total)}</strong>
+            </td>
+            <td />
+            <td />
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 

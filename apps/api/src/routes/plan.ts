@@ -46,8 +46,10 @@ planRoute.get('/me', async (c) => {
 
   const actualUsageCostUsd = Number(periodAgg?.cost ?? 0);
   const daysRemaining = Math.max(0, Math.ceil((to.getTime() - Date.now()) / 86400000));
+  // Uncapped — for flat-fee plans (Pro/Max) values > 100 are meaningful ("Nx value").
   const costUtilizationPercent =
-    monthlyPriceUsd > 0 ? Math.min(100, (actualUsageCostUsd / monthlyPriceUsd) * 100) : 0;
+    monthlyPriceUsd > 0 ? (actualUsageCostUsd / monthlyPriceUsd) * 100 : 0;
+  const valueMultiplier = monthlyPriceUsd > 0 ? actualUsageCostUsd / monthlyPriceUsd : 0;
 
   return c.json({
     ok: true,
@@ -63,6 +65,7 @@ planRoute.get('/me', async (c) => {
     totals: {
       actualUsageCostUsd,
       costUtilizationPercent,
+      valueMultiplier,
       sessions: Number(periodAgg?.sessions ?? 0),
       prompts: Number(periodAgg?.prompts ?? 0),
       input: Number(periodAgg?.input ?? 0),

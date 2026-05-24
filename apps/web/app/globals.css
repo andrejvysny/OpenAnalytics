@@ -18,6 +18,8 @@
   --radius: 10px;
   --radius-sm: 6px;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  --mono: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --cost: #f5b07b;
 }
 
 * {
@@ -314,18 +316,19 @@ button.signout:hover {
   background:
     radial-gradient(circle at 10% 10%, rgba(79, 140, 255, 0.08), transparent 35%), var(--panel);
 }
-.plan-hero.over {
-  border-color: rgba(255, 110, 110, 0.45);
+/* >100% utilization is a positive signal for flat-fee subscriptions, not a warning. */
+.plan-hero.positive {
+  border-color: rgba(52, 211, 153, 0.4);
   background:
-    radial-gradient(circle at 10% 10%, rgba(255, 110, 110, 0.08), transparent 35%), var(--panel);
+    radial-gradient(circle at 10% 10%, rgba(52, 211, 153, 0.07), transparent 35%), var(--panel);
 }
-.plan-hero.over .donut-center strong {
-  color: #ff6e6e;
+.plan-hero.positive .donut-center strong {
+  color: #34d399;
 }
-.over-pill {
+.value-pill {
   display: inline-block;
-  background: rgba(255, 110, 110, 0.18);
-  color: #ff8585;
+  background: rgba(52, 211, 153, 0.16);
+  color: #5be0b0;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
@@ -822,4 +825,199 @@ input:-webkit-autofill:active {
   font-size: 12.5px;
   font-family: ui-monospace, monospace;
   color: var(--text);
+}
+
+/* ============================================================
+   TERMINAL-STYLE METRICS BLOCK
+   Used by Overview "Today" and "Analytics" panels.
+   Reference: warm-toned, monospaced key/value lists with a
+   subtle dot-grid backdrop and tiny window-dots indicator.
+   ============================================================ */
+
+.metric-panel {
+  position: relative;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.025) 1px, transparent 1px) 0 0 / 18px 18px,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.01), transparent 30%),
+    var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 26px;
+  margin-top: 16px;
+  overflow: hidden;
+}
+.metric-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 16px;
+  gap: 14px;
+}
+.metric-panel-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.metric-panel-header .sub {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* The two-column grid that puts the key/value list on the left
+   and a feature card (top projects, tokens quad) on the right. */
+.metric-cols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+@media (min-width: 980px) {
+  .metric-cols {
+    grid-template-columns: 1fr 1fr;
+    gap: 26px;
+  }
+}
+
+/* Bordered inner card with window-dot indicator at the top-left. */
+.metric-card {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px 14px;
+  position: relative;
+}
+.window-dots {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.window-dots span {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* The metrics list itself — monospace, label left, value right. */
+.metrics-list {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  display: flex;
+  flex-direction: column;
+}
+.metrics-list .row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+  gap: 12px;
+}
+.metrics-list .row:last-child {
+  border-bottom: none;
+}
+.metrics-list .k {
+  color: var(--muted);
+}
+.metrics-list .v {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+}
+.metrics-list .v.cost {
+  color: var(--cost);
+  font-weight: 600;
+}
+.metrics-list .v .pill {
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-right: 6px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+/* Sub-tile quad for tokens (2x2). */
+.tokens-quad {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.token-tile {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+.token-tile .k {
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.token-tile .v {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.token-tile .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+}
+.token-tile.cost .v {
+  color: var(--cost);
+}
+
+/* Top-projects-today card */
+.top-projects-card .row {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.top-projects-card .row:last-child {
+  border-bottom: none;
+}
+.top-projects-card .row .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.top-projects-card .row .name {
+  font-weight: 500;
+  font-size: 13.5px;
+}
+.top-projects-card .row .meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-family: var(--mono);
+}
+.top-projects-card .row .bar-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 2px;
+  margin: 6px 0 0;
+  overflow: hidden;
+}
+.top-projects-card .row .bar-fill {
+  height: 100%;
+  background: var(--cost);
+  opacity: 0.85;
+}
+
+.diff-plus {
+  color: var(--green);
+}
+.diff-minus {
+  color: var(--red);
 }

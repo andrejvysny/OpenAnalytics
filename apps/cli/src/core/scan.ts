@@ -101,11 +101,15 @@ function collectJsonl(dir: string, out: string[]): void {
   }
 }
 
-function mergeSubagent(parent: Session, child: Session, path: string): void {
+export function mergeSubagent(parent: Session, child: Session, path: string): void {
   parent.tokens.input += child.tokens.input;
   parent.tokens.output += child.tokens.output;
   parent.tokens.cache_read += child.tokens.cache_read;
   parent.tokens.cache_creation += child.tokens.cache_creation;
+  // Without these, the subagent's cache writes are silently zero-priced because
+  // computeCost prefers the 5m/1h split over the legacy total when both are present.
+  parent.tokens.cache_creation_5m += child.tokens.cache_creation_5m;
+  parent.tokens.cache_creation_1h += child.tokens.cache_creation_1h;
   parent.tokens.reasoning += child.tokens.reasoning;
   parent.lines_added += child.lines_added;
   parent.lines_removed += child.lines_removed;

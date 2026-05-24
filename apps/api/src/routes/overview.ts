@@ -29,6 +29,11 @@ overviewRoute.get('/', async (c) => {
       cache_creation_1h: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreation1hTokens}),0)`,
       added: sql<number>`COALESCE(SUM(${schema.sessions.linesAdded}),0)`,
       removed: sql<number>`COALESCE(SUM(${schema.sessions.linesRemoved}),0)`,
+      cost_input: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'input')::numeric),0)`,
+      cost_output: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'output')::numeric),0)`,
+      cost_cache_read: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'cache_read')::numeric),0)`,
+      cost_cache_creation_5m: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'cache_creation_5m')::numeric),0)`,
+      cost_cache_creation_1h: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'cache_creation_1h')::numeric),0)`,
     })
     .from(schema.sessions)
     .where(
@@ -53,6 +58,11 @@ overviewRoute.get('/', async (c) => {
       added: sql<number>`COALESCE(SUM(${schema.sessions.linesAdded}),0)`,
       removed: sql<number>`COALESCE(SUM(${schema.sessions.linesRemoved}),0)`,
       activeDays: sql<number>`COUNT(DISTINCT DATE(${schema.sessions.startedAt} AT TIME ZONE 'UTC'))`,
+      cost_input: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'input')::numeric),0)`,
+      cost_output: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'output')::numeric),0)`,
+      cost_cache_read: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'cache_read')::numeric),0)`,
+      cost_cache_creation_5m: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'cache_creation_5m')::numeric),0)`,
+      cost_cache_creation_1h: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'cache_creation_1h')::numeric),0)`,
     })
     .from(schema.sessions)
     .where(and(eq(schema.sessions.workspaceId, wsId), eq(schema.sessions.userId, userId)));

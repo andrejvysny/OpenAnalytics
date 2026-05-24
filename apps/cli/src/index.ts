@@ -10,7 +10,7 @@ import { runServiceInstall, runServiceStatus, runServiceUninstall } from './comm
 
 const program = new Command();
 
-program.name('oa').description('OpenAnalytics — track coding-agent usage locally').version('0.1.0');
+program.name('oa').description('OpenAnalytics — track coding-agent usage locally').version('0.1.1');
 
 program
   .command('login')
