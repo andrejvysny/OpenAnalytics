@@ -39,6 +39,12 @@ export const sessions = pgTable(
     outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
     cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
     cacheCreationTokens: bigint('cache_creation_tokens', { mode: 'number' }).notNull().default(0),
+    cacheCreation5mTokens: bigint('cache_creation_5m_tokens', { mode: 'number' })
+      .notNull()
+      .default(0),
+    cacheCreation1hTokens: bigint('cache_creation_1h_tokens', { mode: 'number' })
+      .notNull()
+      .default(0),
     reasoningTokens: bigint('reasoning_tokens', { mode: 'number' }).notNull().default(0),
     linesAdded: integer('lines_added').notNull().default(0),
     linesRemoved: integer('lines_removed').notNull().default(0),
@@ -82,6 +88,12 @@ export const requests = pgTable('requests', {
   outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
   cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
   cacheCreationTokens: bigint('cache_creation_tokens', { mode: 'number' }).notNull().default(0),
+  cacheCreation5mTokens: bigint('cache_creation_5m_tokens', { mode: 'number' })
+    .notNull()
+    .default(0),
+  cacheCreation1hTokens: bigint('cache_creation_1h_tokens', { mode: 'number' })
+    .notNull()
+    .default(0),
   costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
   linesAdded: integer('lines_added').notNull().default(0),
   linesRemoved: integer('lines_removed').notNull().default(0),

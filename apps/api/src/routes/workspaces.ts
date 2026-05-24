@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
+import { planNameFor, PLAN_KINDS, type PlanKind } from '../services/plans';
 
 export const workspacesRoute = new Hono<{ Variables: SessionVars }>();
 workspacesRoute.use('*', sessionAuth);
@@ -43,7 +44,7 @@ const Create = z.object({
     .min(2)
     .max(64)
     .regex(/^[a-z0-9-]+$/),
-  planKind: z.enum(['pro', 'max_5x', 'max_20x', 'custom']).default('custom'),
+  planKind: z.enum(PLAN_KINDS as [PlanKind, ...PlanKind[]]).default('custom'),
   planName: z.string().max(64).optional(),
   monthlyPriceUsd: z.number().nonnegative().optional(),
   splitMode: z.enum(['usage', 'equal', 'custom_weights']).default('usage'),
@@ -66,7 +67,9 @@ workspacesRoute.post('/', async (c) => {
         planKind: parsed.data.planKind,
         planName: parsed.data.planName ?? planNameFor(parsed.data.planKind),
         monthlyPriceUsd: parsed.data.monthlyPriceUsd?.toFixed(2) ?? null,
-        monthlyBudgetUsd: parsed.data.monthlyPriceUsd ? Math.round(parsed.data.monthlyPriceUsd) : null,
+        monthlyBudgetUsd: parsed.data.monthlyPriceUsd
+          ? Math.round(parsed.data.monthlyPriceUsd)
+          : null,
         splitMode: parsed.data.splitMode,
         planTier: parsed.data.planName ?? planNameFor(parsed.data.planKind),
         billingCycleDay: parsed.data.billingCycleDay,
@@ -87,7 +90,7 @@ workspacesRoute.post('/', async (c) => {
 
 const Update = z.object({
   name: z.string().min(1).max(255).optional(),
-  planKind: z.enum(['pro', 'max_5x', 'max_20x', 'custom']).optional(),
+  planKind: z.enum(PLAN_KINDS as [PlanKind, ...PlanKind[]]).optional(),
   planName: z.string().max(64).nullable().optional(),
   monthlyPriceUsd: z.number().nonnegative().nullable().optional(),
   splitMode: z.enum(['usage', 'equal', 'custom_weights']).optional(),
@@ -164,7 +167,10 @@ workspacesRoute.get('/:id/members', async (c) => {
 });
 
 const MemberUpdate = z.object({
-  trackingFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  trackingFrom: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   expectedShareBps: z.number().int().min(0).max(10000).nullable().optional(),
 });
 
@@ -202,10 +208,3 @@ workspacesRoute.patch('/:id/members/:memberId', async (c) => {
     );
   return c.json({ ok: true });
 });
-
-function planNameFor(kind: 'pro' | 'max_5x' | 'max_20x' | 'custom'): string {
-  if (kind === 'pro') return 'Claude Pro';
-  if (kind === 'max_5x') return 'Claude Max 5x';
-  if (kind === 'max_20x') return 'Claude Max 20x';
-  return 'Custom';
-}

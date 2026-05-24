@@ -15,6 +15,8 @@ export interface AggregatorState {
   output_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+  cache_creation_5m_tokens: number;
+  cache_creation_1h_tokens: number;
   reasoning_tokens: number;
   lines_added: number;
   lines_removed: number;
@@ -47,6 +49,8 @@ export function newState(session_id: string, opts: AggregatorOptions = {}): Aggr
     output_tokens: 0,
     cache_read_tokens: 0,
     cache_creation_tokens: 0,
+    cache_creation_5m_tokens: 0,
+    cache_creation_1h_tokens: 0,
     reasoning_tokens: 0,
     lines_added: 0,
     lines_removed: 0,
@@ -99,15 +103,30 @@ function handleAssistant(state: AggregatorState, ev: RawAssistant) {
   let req_output = 0;
   let req_cache_r = 0;
   let req_cache_c = 0;
+  let req_cache_c_5m = 0;
+  let req_cache_c_1h = 0;
   if (u) {
     req_input = u.input_tokens ?? 0;
     req_output = u.output_tokens ?? 0;
     req_cache_r = u.cache_read_input_tokens ?? 0;
-    req_cache_c = u.cache_creation_input_tokens ?? 0;
+    const legacy_cc = u.cache_creation_input_tokens ?? 0;
+    const nested_5m = u.cache_creation?.ephemeral_5m_input_tokens;
+    const nested_1h = u.cache_creation?.ephemeral_1h_input_tokens;
+    if (typeof nested_5m === 'number' || typeof nested_1h === 'number') {
+      req_cache_c_5m = nested_5m ?? 0;
+      req_cache_c_1h = nested_1h ?? 0;
+      req_cache_c = req_cache_c_5m + req_cache_c_1h;
+    } else {
+      // Legacy format: treat the whole bucket as 5m (Claude's default ephemeral TTL).
+      req_cache_c_5m = legacy_cc;
+      req_cache_c = legacy_cc;
+    }
     state.input_tokens += req_input;
     state.output_tokens += req_output;
     state.cache_read_tokens += req_cache_r;
     state.cache_creation_tokens += req_cache_c;
+    state.cache_creation_5m_tokens += req_cache_c_5m;
+    state.cache_creation_1h_tokens += req_cache_c_1h;
   }
 
   let req_added = 0;
@@ -135,6 +154,8 @@ function handleAssistant(state: AggregatorState, ev: RawAssistant) {
     output_tokens: req_output,
     cache_read_tokens: req_cache_r,
     cache_creation_tokens: req_cache_c,
+    cache_creation_5m_tokens: req_cache_c_5m,
+    cache_creation_1h_tokens: req_cache_c_1h,
     lines_added: req_added,
     lines_removed: req_removed,
   });
@@ -231,6 +252,8 @@ export function finalize(state: AggregatorState): Session {
       output: state.output_tokens,
       cache_read: state.cache_read_tokens,
       cache_creation: state.cache_creation_tokens,
+      cache_creation_5m: state.cache_creation_5m_tokens,
+      cache_creation_1h: state.cache_creation_1h_tokens,
       reasoning: state.reasoning_tokens,
     },
     lines_added: state.lines_added,

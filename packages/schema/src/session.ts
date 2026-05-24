@@ -7,7 +7,10 @@ export const TokenCounts = z.object({
   input: z.number().int().nonnegative(),
   output: z.number().int().nonnegative(),
   cache_read: z.number().int().nonnegative(),
+  // Legacy total — equals cache_creation_5m + cache_creation_1h when both are present.
   cache_creation: z.number().int().nonnegative(),
+  cache_creation_5m: z.number().int().nonnegative().default(0),
+  cache_creation_1h: z.number().int().nonnegative().default(0),
   reasoning: z.number().int().nonnegative().default(0),
 });
 export type TokenCounts = z.infer<typeof TokenCounts>;
@@ -35,6 +38,8 @@ export const Request = z.object({
   output_tokens: z.number().int().nonnegative(),
   cache_read_tokens: z.number().int().nonnegative(),
   cache_creation_tokens: z.number().int().nonnegative(),
+  cache_creation_5m_tokens: z.number().int().nonnegative().default(0),
+  cache_creation_1h_tokens: z.number().int().nonnegative().default(0),
   lines_added: z.number().int().nonnegative(),
   lines_removed: z.number().int().nonnegative(),
 });

@@ -25,6 +25,19 @@ interface PlanSummaryResp {
   members: { userId: string }[];
 }
 
+interface PlanMeResp {
+  ok: boolean;
+  workspace: { id: string; name: string; isPersonal: boolean };
+  subscription: {
+    planKind: 'api' | 'pro' | 'max_5x' | 'max_20x' | 'custom';
+    planName: string;
+    monthlyPriceUsd: number;
+    billingCycleDay: number;
+  };
+  period: { from: string; to: string; daysRemaining: number };
+  totals: { actualUsageCostUsd: number; costUtilizationPercent: number };
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function Page() {
@@ -36,11 +49,14 @@ export default async function Page() {
   const overview = await api<OverviewResp>('/api/overview');
   const heat = await api<HeatmapResp>('/api/heatmap?year=' + new Date().getUTCFullYear());
   const sharedPlans = await Promise.all(
-    workspaces.filter((w) => !w.isPersonal).map((w) => api<PlanSummaryResp>(`/api/plan/${w.id}/split`)),
+    workspaces
+      .filter((w) => !w.isPersonal)
+      .map((w) => api<PlanSummaryResp>(`/api/plan/${w.id}/split`)),
   );
   const activePlan = sharedPlans
     .filter((p): p is PlanSummaryResp => p !== null)
     .sort((a, b) => b.totals.actualUsageCostUsd - a.totals.actualUsageCostUsd)[0];
+  const personalPlan = await api<PlanMeResp>('/api/plan/me');
 
   if (!overview) {
     return (
@@ -102,9 +118,14 @@ export default async function Page() {
         </div>
       </div>
 
-      {activePlan && (
+      {activePlan ? (
         <div className="panel plan-hero" style={{ marginBottom: 18 }}>
-          <div className="donut" style={{ background: `conic-gradient(var(--accent) ${Math.min(100, activePlan.totals.costUtilizationPercent)}%, #202532 0)` }}>
+          <div
+            className="donut"
+            style={{
+              background: `conic-gradient(var(--accent) ${Math.min(100, activePlan.totals.costUtilizationPercent)}%, #202532 0)`,
+            }}
+          >
             <div className="donut-center">
               <strong>{Math.round(activePlan.totals.costUtilizationPercent)}%</strong>
               <span>used</span>
@@ -120,14 +141,74 @@ export default async function Page() {
               <span className="muted">/ {money(activePlan.subscription.monthlyPriceUsd)}</span>
             </div>
             <div className="muted" style={{ marginTop: 6 }}>
-              Most active shared plan · {tokens(activePlan.totals.rawTokens)} · {activePlan.members.length} members
+              Most active shared plan · {tokens(activePlan.totals.rawTokens)} ·{' '}
+              {activePlan.members.length} members
             </div>
           </div>
           <div className="flex" style={{ justifyContent: 'flex-end' }}>
-            <a className="tab" href={`/plan/${activePlan.workspace.id}`}>Open plan</a>
+            <a className="tab" href={`/plan/${activePlan.workspace.id}`}>
+              Open plan
+            </a>
           </div>
         </div>
-      )}
+      ) : personalPlan ? (
+        <div className="panel plan-hero" style={{ marginBottom: 18 }}>
+          {personalPlan.subscription.monthlyPriceUsd > 0 ? (
+            <div
+              className="donut"
+              style={{
+                background: `conic-gradient(var(--accent) ${Math.min(100, personalPlan.totals.costUtilizationPercent)}%, #202532 0)`,
+              }}
+              title="API-equivalent value vs. monthly fee"
+            >
+              <div className="donut-center">
+                <strong>{Math.round(personalPlan.totals.costUtilizationPercent)}%</strong>
+                <span>used</span>
+              </div>
+            </div>
+          ) : (
+            <div className="donut" style={{ background: '#202532' }}>
+              <div className="donut-center">
+                <strong>API</strong>
+                <span>no cap</span>
+              </div>
+            </div>
+          )}
+          <div>
+            <div className="flex wrap">
+              <h2 style={{ margin: 0 }}>{personalPlan.subscription.planName}</h2>
+              <span className="pill">{personalPlan.subscription.planKind}</span>
+            </div>
+            <div className="hero-amount" style={{ marginTop: 8 }}>
+              {money(personalPlan.totals.actualUsageCostUsd)}
+              {personalPlan.subscription.monthlyPriceUsd > 0 ? (
+                <span className="muted"> / {money(personalPlan.subscription.monthlyPriceUsd)}</span>
+              ) : (
+                <span className="muted"> · this period</span>
+              )}
+            </div>
+            <div className="muted" style={{ marginTop: 6 }}>
+              {new Date(personalPlan.period.from).toLocaleDateString('en', {
+                month: 'short',
+                day: 'numeric',
+              })}{' '}
+              –{' '}
+              {new Date(personalPlan.period.to).toLocaleDateString('en', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}{' '}
+              · Ends in {personalPlan.period.daysRemaining} day
+              {personalPlan.period.daysRemaining === 1 ? '' : 's'}
+            </div>
+          </div>
+          <div className="flex" style={{ justifyContent: 'flex-end' }}>
+            <a className="tab" href="/settings/plan">
+              Edit plan
+            </a>
+          </div>
+        </div>
+      ) : null}
 
       <div className="section-label">Today</div>
       <div className="stats-grid">
@@ -149,6 +230,22 @@ export default async function Page() {
             <span className="diff-plus">+{num(today.added)}</span>{' '}
             <span className="diff-minus">−{num(today.removed)}</span>
           </div>
+        </div>
+        <div className="stat">
+          <div className="label">Input tokens</div>
+          <div className="value">{tokens(today.input)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Output tokens</div>
+          <div className="value">{tokens(today.output)}</div>
+        </div>
+        <div className="stat" title="5m + 1h cache writes combined">
+          <div className="label">Cache write</div>
+          <div className="value">{tokens(today.cache_creation)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Cache read</div>
+          <div className="value">{tokens(today.cache_read)}</div>
         </div>
       </div>
 
@@ -177,6 +274,10 @@ export default async function Page() {
         <div className="stat">
           <div className="label">Output tokens</div>
           <div className="value">{tokens(all.output)}</div>
+        </div>
+        <div className="stat" title="5m + 1h cache writes combined">
+          <div className="label">Cache write</div>
+          <div className="value">{tokens(all.cache_creation)}</div>
         </div>
         <div className="stat">
           <div className="label">Cache read</div>

@@ -36,6 +36,52 @@ describe('claude-code aggregator (minimal fixture)', () => {
     expect(session.tokens.cache_creation).toBe(100);
   });
 
+  it('treats legacy cache_creation_input_tokens as 5m ephemeral', () => {
+    // Minimal fixture only has the legacy flat field, so 5m=total, 1h=0.
+    expect(session.tokens.cache_creation_5m).toBe(100);
+    expect(session.tokens.cache_creation_1h).toBe(0);
+  });
+
+  it('reads nested cache_creation 5m / 1h split when provided', () => {
+    const sid = '00000000-0000-0000-0000-000000000099';
+    const events = [
+      {
+        type: 'user',
+        sessionId: sid,
+        promptId: 'p1',
+        timestamp: '2026-05-24T11:00:00.000Z',
+        cwd: '/tmp/x',
+        message: { role: 'user', content: 'hi' },
+      },
+      {
+        type: 'assistant',
+        sessionId: sid,
+        timestamp: '2026-05-24T11:00:01.000Z',
+        cwd: '/tmp/x',
+        version: '1.0.0',
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-7',
+          content: [],
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 5,
+            cache_creation: {
+              ephemeral_5m_input_tokens: 40,
+              ephemeral_1h_input_tokens: 60,
+            },
+          },
+        },
+      },
+    ];
+    const transcript = events.map((e) => JSON.stringify(e)).join('\n');
+    const s = parseTranscript(sid, transcript);
+    expect(s.tokens.cache_creation_5m).toBe(40);
+    expect(s.tokens.cache_creation_1h).toBe(60);
+    expect(s.tokens.cache_creation).toBe(100);
+  });
+
   it('captures tool counts', () => {
     expect(session.tools).toEqual({ Write: 1, Edit: 1, Read: 1 });
   });

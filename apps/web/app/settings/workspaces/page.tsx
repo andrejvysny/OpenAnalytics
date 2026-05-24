@@ -149,9 +149,10 @@ export default async function Page({
               <div className="field">
                 <label>Plan preset</label>
                 <select name="planKind" defaultValue="max_5x">
-                  <option value="pro">Claude Pro</option>
-                  <option value="max_5x">Claude Max 5x</option>
-                  <option value="max_20x">Claude Max 20x</option>
+                  <option value="api">API (pay-as-you-go)</option>
+                  <option value="pro">Claude Pro ($20/mo)</option>
+                  <option value="max_5x">Claude Max 5x ($100/mo)</option>
+                  <option value="max_20x">Claude Max 20x ($200/mo)</option>
                   <option value="custom">Custom</option>
                 </select>
               </div>

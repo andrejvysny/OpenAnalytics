@@ -66,6 +66,9 @@ export function DashLayout({
           )}
 
           <div className="nav-section">Settings</div>
+          <Link href="/settings/plan" className="nav-link">
+            My plan
+          </Link>
           <Link href="/settings/workspaces" className="nav-link">
             Workspaces
           </Link>

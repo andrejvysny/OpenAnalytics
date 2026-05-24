@@ -65,6 +65,9 @@ export async function getOrCreatePersonalWorkspace(db: Db, userId: string): Prom
       name: `${user[0].name}'s workspace`,
       ownerId: userId,
       isPersonal: 1,
+      planKind: 'api',
+      planName: 'API (pay-as-you-go)',
+      planTier: 'API (pay-as-you-go)',
     })
     .returning({ id: schema.workspaces.id });
 

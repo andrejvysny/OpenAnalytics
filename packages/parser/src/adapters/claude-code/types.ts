@@ -26,11 +26,20 @@ export interface RawCommon {
   promptId?: string;
 }
 
+export interface RawCacheCreationBreakdown {
+  ephemeral_5m_input_tokens?: number;
+  ephemeral_1h_input_tokens?: number;
+}
+
 export interface RawUsage {
   input_tokens?: number;
   output_tokens?: number;
   cache_read_input_tokens?: number;
+  // Legacy single field (treated as 5m when no nested breakdown).
   cache_creation_input_tokens?: number;
+  // Modern split — Anthropic now sends this object alongside the legacy field.
+  cache_creation?: RawCacheCreationBreakdown;
+  service_tier?: string;
 }
 
 export interface RawContentBlock {

@@ -3,10 +3,75 @@ import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
+import { getOrCreatePersonalWorkspace } from '../services/workspace';
+import { planNameFor, type PlanKind } from '../services/plans';
 
 export const planRoute = new Hono<{ Variables: SessionVars }>();
 
 planRoute.use('*', sessionAuth);
+
+// Lightweight personal-workspace utilization summary used by the Overview "Plan hero" panel.
+planRoute.get('/me', async (c) => {
+  const userId = c.get('userId');
+  const wsId = await getOrCreatePersonalWorkspace(db, userId);
+  const [ws] = await db
+    .select()
+    .from(schema.workspaces)
+    .where(eq(schema.workspaces.id, wsId))
+    .limit(1);
+  if (!ws) return c.json({ ok: false, error: 'not found' }, 404);
+
+  const { from, to } = currentPeriod(ws.billingCycleDay);
+  const monthlyPriceUsd = ws.monthlyPriceUsd === null ? 0 : Number(ws.monthlyPriceUsd);
+
+  const [periodAgg] = await db
+    .select({
+      cost: sql<string>`COALESCE(SUM(${schema.sessions.costUsd}),0)`,
+      sessions: sql<number>`COUNT(*)`,
+      prompts: sql<number>`COALESCE(SUM(${schema.sessions.promptCount}),0)`,
+      input: sql<number>`COALESCE(SUM(${schema.sessions.inputTokens}),0)`,
+      output: sql<number>`COALESCE(SUM(${schema.sessions.outputTokens}),0)`,
+      cacheRead: sql<number>`COALESCE(SUM(${schema.sessions.cacheReadTokens}),0)`,
+      cacheCreation: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreationTokens}),0)`,
+    })
+    .from(schema.sessions)
+    .where(
+      and(
+        eq(schema.sessions.workspaceId, wsId),
+        eq(schema.sessions.userId, userId),
+        gte(schema.sessions.startedAt, from),
+        lt(schema.sessions.startedAt, to),
+      ),
+    );
+
+  const actualUsageCostUsd = Number(periodAgg?.cost ?? 0);
+  const daysRemaining = Math.max(0, Math.ceil((to.getTime() - Date.now()) / 86400000));
+  const costUtilizationPercent =
+    monthlyPriceUsd > 0 ? Math.min(100, (actualUsageCostUsd / monthlyPriceUsd) * 100) : 0;
+
+  return c.json({
+    ok: true,
+    workspace: { id: ws.id, name: ws.name, isPersonal: ws.isPersonal === 1 },
+    subscription: {
+      planKind: (ws.planKind ?? 'api') as PlanKind,
+      planName: ws.planName ?? planNameFor((ws.planKind ?? 'api') as PlanKind),
+      monthlyPriceUsd,
+      billingCycleDay: ws.billingCycleDay,
+      currency: ws.currency ?? 'USD',
+    },
+    period: { from: from.toISOString(), to: to.toISOString(), daysRemaining },
+    totals: {
+      actualUsageCostUsd,
+      costUtilizationPercent,
+      sessions: Number(periodAgg?.sessions ?? 0),
+      prompts: Number(periodAgg?.prompts ?? 0),
+      input: Number(periodAgg?.input ?? 0),
+      output: Number(periodAgg?.output ?? 0),
+      cacheRead: Number(periodAgg?.cacheRead ?? 0),
+      cacheCreation: Number(periodAgg?.cacheCreation ?? 0),
+    },
+  });
+});
 
 function currentPeriod(billingCycleDay: number): { from: Date; to: Date } {
   const now = new Date();
@@ -120,7 +185,8 @@ planRoute.get('/:workspaceId/split', async (c) => {
   const usageByUser = new Map(usageRows.map((r) => [r.userId, r]));
   const totalUsageCost = usageRows.reduce((s, r) => s + Number(r.actualUsageCostUsd), 0);
   const totalTokens = usageRows.reduce(
-    (s, r) => s + Number(r.input) + Number(r.output) + Number(r.cacheRead) + Number(r.cacheCreation),
+    (s, r) =>
+      s + Number(r.input) + Number(r.output) + Number(r.cacheRead) + Number(r.cacheCreation),
     0,
   );
   const expectedShares = effectiveExpectedShares(memberRows, ws.splitMode);
@@ -136,7 +202,11 @@ planRoute.get('/:workspaceId/split', async (c) => {
       const tokenPercent = percent(rawTokens, totalTokens);
       const expectedSharePercent = Number((expectedShares[idx] ?? 0).toFixed(2));
       const owedPercent =
-        ws.splitMode === 'usage' ? usagePercent : ws.splitMode === 'equal' ? expectedSharePercent : expectedSharePercent;
+        ws.splitMode === 'usage'
+          ? usagePercent
+          : ws.splitMode === 'equal'
+            ? expectedSharePercent
+            : expectedSharePercent;
       return {
         userId: m.userId,
         role: m.role,
@@ -225,6 +295,10 @@ planRoute.get('/:workspaceId/split', async (c) => {
       date: r.date,
       actualUsageCostUsd: round2(Number(r.actualUsageCostUsd)),
     })),
-    dailyTokens: dailyRows.map((r) => ({ userId: r.userId, date: r.date, tokens: Number(r.tokens) })),
+    dailyTokens: dailyRows.map((r) => ({
+      userId: r.userId,
+      date: r.date,
+      tokens: Number(r.tokens),
+    })),
   });
 });

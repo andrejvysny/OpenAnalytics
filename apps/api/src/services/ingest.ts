@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema } from '@oa/db';
 import type { Session as SessionPayload } from '@oa/schema';
 import type { Db } from '../db';
@@ -42,6 +42,8 @@ async function ingestOne(
   const promptCount = s.prompts.length;
   const requestCount = s.requests.length;
 
+  const sessionCacheCreation5m = s.tokens.cache_creation_5m ?? 0;
+  const sessionCacheCreation1h = s.tokens.cache_creation_1h ?? 0;
   const cost = await computeCost(db, {
     agentKind: s.agent_kind,
     model: s.model,
@@ -50,6 +52,8 @@ async function ingestOne(
     outputTokens: s.tokens.output,
     cacheReadTokens: s.tokens.cache_read,
     cacheCreationTokens: s.tokens.cache_creation,
+    cacheCreation5mTokens: sessionCacheCreation5m,
+    cacheCreation1hTokens: sessionCacheCreation1h,
   });
   const requestCosts = await Promise.all(
     s.requests.map((r) =>
@@ -61,23 +65,13 @@ async function ingestOne(
         outputTokens: r.output_tokens,
         cacheReadTokens: r.cache_read_tokens,
         cacheCreationTokens: r.cache_creation_tokens,
+        cacheCreation5mTokens: r.cache_creation_5m_tokens ?? 0,
+        cacheCreation1hTokens: r.cache_creation_1h_tokens ?? 0,
       }),
     ),
   );
 
   await db.transaction(async (tx) => {
-    const [previous] = await tx
-      .select({
-        workspaceId: schema.sessions.workspaceId,
-        userId: schema.sessions.userId,
-        projectId: schema.sessions.projectId,
-        agentKind: schema.sessions.agentKind,
-        startedAt: schema.sessions.startedAt,
-      })
-      .from(schema.sessions)
-      .where(eq(schema.sessions.id, s.session_id))
-      .limit(1);
-
     const projectName = s.project_name ?? s.path_hash;
     const [project] = await tx
       .insert(schema.projects)
@@ -120,6 +114,8 @@ async function ingestOne(
         outputTokens: s.tokens.output,
         cacheReadTokens: s.tokens.cache_read,
         cacheCreationTokens: s.tokens.cache_creation,
+        cacheCreation5mTokens: sessionCacheCreation5m,
+        cacheCreation1hTokens: sessionCacheCreation1h,
         reasoningTokens: s.tokens.reasoning,
         linesAdded: s.lines_added,
         linesRemoved: s.lines_removed,
@@ -147,6 +143,8 @@ async function ingestOne(
           outputTokens: s.tokens.output,
           cacheReadTokens: s.tokens.cache_read,
           cacheCreationTokens: s.tokens.cache_creation,
+          cacheCreation5mTokens: sessionCacheCreation5m,
+          cacheCreation1hTokens: sessionCacheCreation1h,
           reasoningTokens: s.tokens.reasoning,
           linesAdded: s.lines_added,
           linesRemoved: s.lines_removed,
@@ -189,6 +187,8 @@ async function ingestOne(
           outputTokens: r.output_tokens,
           cacheReadTokens: r.cache_read_tokens,
           cacheCreationTokens: r.cache_creation_tokens,
+          cacheCreation5mTokens: r.cache_creation_5m_tokens ?? 0,
+          cacheCreation1hTokens: r.cache_creation_1h_tokens ?? 0,
           costUsd: (requestCosts[idx]?.total ?? 0).toFixed(6),
           linesAdded: r.lines_added,
           linesRemoved: r.lines_removed,
@@ -219,76 +219,6 @@ async function ingestOne(
       );
     }
 
-    const refreshDaily = async (key: {
-      workspaceId: string;
-      userId: string;
-      projectId: string;
-      agentKind: string;
-      date: string;
-    }) => {
-      await tx
-        .insert(schema.dailyStats)
-        .values({
-          ...key,
-          prompts: 0,
-          sessions: 0,
-          costUsd: '0',
-          inputTokens: 0,
-          outputTokens: 0,
-          cacheReadTokens: 0,
-          cacheCreationTokens: 0,
-          linesAdded: 0,
-          linesRemoved: 0,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.dailyStats.workspaceId,
-            schema.dailyStats.userId,
-            schema.dailyStats.projectId,
-            schema.dailyStats.agentKind,
-            schema.dailyStats.date,
-          ],
-          set: {
-            prompts: sql`(SELECT COALESCE(SUM(prompt_count),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            sessions: sql`(SELECT COUNT(*) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            costUsd: sql`(SELECT COALESCE(SUM(cost_usd),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            inputTokens: sql`(SELECT COALESCE(SUM(input_tokens),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            outputTokens: sql`(SELECT COALESCE(SUM(output_tokens),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            cacheReadTokens: sql`(SELECT COALESCE(SUM(cache_read_tokens),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            cacheCreationTokens: sql`(SELECT COALESCE(SUM(cache_creation_tokens),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            linesAdded: sql`(SELECT COALESCE(SUM(lines_added),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-            linesRemoved: sql`(SELECT COALESCE(SUM(lines_removed),0) FROM sessions WHERE workspace_id=${key.workspaceId} AND user_id=${key.userId} AND project_id=${key.projectId} AND agent_kind=${key.agentKind} AND DATE(started_at AT TIME ZONE 'UTC')=${key.date})`,
-          },
-        });
-      await tx.delete(schema.dailyStats).where(and(
-          eq(schema.dailyStats.workspaceId, key.workspaceId),
-          eq(schema.dailyStats.userId, key.userId),
-          eq(schema.dailyStats.projectId, key.projectId),
-          eq(schema.dailyStats.agentKind, key.agentKind),
-          eq(schema.dailyStats.date, key.date),
-          sql`${schema.dailyStats.sessions}=0`,
-        ),
-      );
-    };
-
-    await refreshDaily({
-      workspaceId,
-      userId,
-      projectId,
-      agentKind: s.agent_kind,
-      date: startedAt.toISOString().slice(0, 10),
-    });
-    if (previous) {
-      await refreshDaily({
-        workspaceId: previous.workspaceId,
-        userId: previous.userId,
-        projectId: previous.projectId,
-        agentKind: previous.agentKind,
-        date: previous.startedAt.toISOString().slice(0, 10),
-      });
-    }
-
-    // Suppress unused-variable warning when block has only side effects.
-    void and;
+    // daily_stats rollup is no longer maintained; overview/explore/heatmap SUM from sessions.
   });
 }
