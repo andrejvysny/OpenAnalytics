@@ -240,8 +240,18 @@ button.signout:hover {
 /* CARDS */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(1, 1fr);
   gap: 10px;
+}
+@media (min-width: 640px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 .stat {
   background: var(--panel);
@@ -297,11 +307,55 @@ button.signout:hover {
 /* PLAN */
 .plan-hero {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 22px;
   align-items: center;
   border-color: rgba(79, 140, 255, 0.35);
-  background: radial-gradient(circle at 10% 10%, rgba(79, 140, 255, 0.08), transparent 35%), var(--panel);
+  background:
+    radial-gradient(circle at 10% 10%, rgba(79, 140, 255, 0.08), transparent 35%), var(--panel);
+}
+.plan-hero.over {
+  border-color: rgba(255, 110, 110, 0.45);
+  background:
+    radial-gradient(circle at 10% 10%, rgba(255, 110, 110, 0.08), transparent 35%), var(--panel);
+}
+.plan-hero.over .donut-center strong {
+  color: #ff6e6e;
+}
+.over-pill {
+  display: inline-block;
+  background: rgba(255, 110, 110, 0.18);
+  color: #ff8585;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+/* Slim 1-row variant used on Overview (plan info is decorative, not primary). */
+.plan-hero.slim {
+  padding: 14px 18px;
+  margin-top: 16px;
+}
+.plan-hero.slim .donut {
+  width: 56px;
+  height: 56px;
+}
+.plan-hero.slim .donut-center {
+  width: 38px;
+  height: 38px;
+}
+.plan-hero.slim .donut-center strong {
+  font-size: 12px;
+}
+.plan-hero.slim .donut-center span {
+  font-size: 8px;
+}
+.plan-hero.slim .hero-amount {
+  font-size: 18px;
+}
+.plan-hero.slim h2 {
+  font-size: 15px;
 }
 .hero-amount {
   font-size: 24px;
@@ -394,6 +448,67 @@ table.data td.num {
 }
 table.data td.num.cost {
   font-weight: 500;
+}
+
+/* PROPORTION LIST — unified Projects / Tools card pattern */
+.prop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prop-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.prop-row:last-child {
+  border-bottom: none;
+}
+.prop-label {
+  min-width: 0;
+}
+.prop-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prop-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.prop-value {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.prop-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+}
+
+/* Vertically-scrollable panel for long lists (Projects / Tools / Languages). */
+.scroll-list {
+  max-height: 520px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.scroll-list > h2 {
+  flex-shrink: 0;
+}
+.scroll-list .prop-list,
+.scroll-list > table {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 /* BARS */

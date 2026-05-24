@@ -94,37 +94,46 @@ export default async function ExplorePage({
               <div className="value">{tokens(data.summary.output)}</div>
             </div>
             <div className="stat">
+              <div className="label">Cache write</div>
+              <div className="value">{tokens(data.summary.cacheCreation)}</div>
+            </div>
+            <div className="stat">
               <div className="label">Cache read</div>
               <div className="value">{tokens(data.summary.cacheRead)}</div>
             </div>
           </div>
 
           <div className="panel">
-            <h2>Daily cost</h2>
+            <div className="flex spread" style={{ marginBottom: 8 }}>
+              <h2 style={{ margin: 0 }}>Daily cost</h2>
+              <span className="muted" style={{ fontSize: 11.5 }}>
+                {data.daily.length} day{data.daily.length === 1 ? '' : 's'}
+              </span>
+            </div>
             <DailyChart daily={data.daily} />
           </div>
 
           <div className="panel-row cols-3" style={{ marginTop: 16 }}>
-            <div className="panel" style={{ marginTop: 0 }}>
+            <div className="panel scroll-list" style={{ marginTop: 0 }}>
               <h2>Projects</h2>
-              <CostTable
-                rows={projects.map((p) => ({ label: p.name, count: p.sessions, cost: p.cost }))}
+              <ProportionList
+                rows={projects.map((p) => ({
+                  label: p.name,
+                  value: p.cost,
+                  sub: `${num(p.sessions)} session${p.sessions === 1 ? '' : 's'}`,
+                  display: money(p.cost),
+                }))}
               />
             </div>
-            <div className="panel" style={{ marginTop: 0 }}>
+            <div className="panel scroll-list" style={{ marginTop: 0 }}>
               <h2>Tools</h2>
-              <table className="data">
-                <tbody>
-                  {data.tools.slice(0, 20).map((t) => (
-                    <tr key={t.tool}>
-                      <td>{t.tool}</td>
-                      <td className="num">{num(t.count)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <ProportionList
+                rows={data.tools
+                  .slice(0, 30)
+                  .map((t) => ({ label: t.tool, value: t.count, display: num(t.count) }))}
+              />
             </div>
-            <div className="panel" style={{ marginTop: 0 }}>
+            <div className="panel scroll-list" style={{ marginTop: 0 }}>
               <h2>Languages</h2>
               <table className="data">
                 <thead>
@@ -135,7 +144,7 @@ export default async function ExplorePage({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.languages.slice(0, 20).map((l) => (
+                  {data.languages.slice(0, 30).map((l) => (
                     <tr key={l.ext}>
                       <td>
                         <span className="code">{l.ext}</span>
@@ -154,81 +163,122 @@ export default async function ExplorePage({
   );
 }
 
-function CostTable({ rows }: { rows: { label: string; count: number; cost: number }[] }) {
-  const max = Math.max(...rows.map((r) => r.cost), 1);
+interface PropRow {
+  label: string;
+  value: number;
+  display: string;
+  sub?: string;
+}
+
+function ProportionList({ rows }: { rows: PropRow[] }) {
+  const max = Math.max(...rows.map((r) => r.value), 1);
+  if (rows.length === 0) return <p className="muted">No data.</p>;
   return (
-    <table className="data">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th style={{ textAlign: 'right' }}>Sessions</th>
-          <th style={{ textAlign: 'right' }}>Cost</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.slice(0, 30).map((r) => (
-          <tr key={r.label}>
-            <td>{r.label}</td>
-            <td className="num">{num(r.count)}</td>
-            <td className="num cost">{money(r.cost)}</td>
-            <td style={{ width: 90 }}>
-              <div className="bar-track">
-                <div className="bar-fill" style={{ width: `${(r.cost / max) * 100}%` }} />
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="prop-list">
+      {rows.map((r) => (
+        <div key={r.label} className="prop-row">
+          <div className="prop-label">
+            <div className="prop-name" title={r.label}>
+              {r.label}
+            </div>
+            {r.sub && <div className="prop-sub">{r.sub}</div>}
+          </div>
+          <div className="prop-value">{r.display}</div>
+          <div className="bar-track prop-bar">
+            <div className="bar-fill" style={{ width: `${(r.value / max) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
 function DailyChart({ daily }: { daily: { date: string; cost: number }[] }) {
   if (daily.length === 0) return <p className="muted">No data.</p>;
   const max = Math.max(...daily.map((d) => d.cost), 0.01);
-  const width = Math.max(daily.length * 28, 600);
-  const h = 200;
-  const padLeft = 60;
-  const barW = Math.min(20, (width - padLeft - 8) / daily.length - 4);
+  const niceMax = niceCeil(max);
 
-  const yTicks = [0.25, 0.5, 0.75, 1];
+  // Use viewBox so the SVG scales to the panel width.
+  const VB_W = 800;
+  const h = 140;
+  const padTop = 12;
+  const padLeft = 56;
+  const padRight = 8;
+  const padBottom = 28;
+  const totalH = h + padTop + padBottom;
+  const plotW = VB_W - padLeft - padRight;
+  const slot = plotW / daily.length;
+  const barW = Math.min(36, slot * 0.62);
+
+  // Cap labels at ~10 to avoid overlap on dense ranges.
+  const labelEveryN = Math.max(1, Math.ceil(daily.length / 10));
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <svg width={width} height={h + 36} style={{ display: 'block' }}>
-        {yTicks.map((t) => (
+    <svg
+      viewBox={`0 0 ${VB_W} ${totalH}`}
+      width="100%"
+      style={{ display: 'block', height: totalH }}
+      preserveAspectRatio="none"
+    >
+      {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+        const y = padTop + (1 - t) * h;
+        return (
           <g key={t}>
             <line
               x1={padLeft}
-              y1={h - h * t}
-              x2={width - 4}
-              y2={h - h * t}
+              y1={y}
+              x2={VB_W - padRight}
+              y2={y}
               stroke="#1f232c"
-              strokeDasharray="2,3"
+              strokeDasharray={t === 0 ? '0' : '2,3'}
+              vectorEffect="non-scaling-stroke"
             />
-            <text x={padLeft - 8} y={h - h * t + 4} fontSize="10" fill="#7a818d" textAnchor="end">
-              ${(max * t).toFixed(max * t > 100 ? 0 : 1)}
+            <text
+              x={padLeft - 8}
+              y={y}
+              fontSize="10"
+              fill="#7a818d"
+              textAnchor="end"
+              dominantBaseline="middle"
+            >
+              ${formatTick(niceMax * t)}
             </text>
           </g>
-        ))}
-        {daily.map((d, i) => {
-          const x = padLeft + i * (barW + 4);
-          const sh = (d.cost / max) * h;
-          return (
-            <g key={d.date}>
-              <rect x={x} y={h - sh} width={barW} height={sh} fill="var(--accent)" rx="2">
-                <title>{`${d.date}: $${d.cost.toFixed(2)}`}</title>
-              </rect>
-              {i % 3 === 0 && (
-                <text x={x + barW / 2} y={h + 18} textAnchor="middle" fontSize="10" fill="#7a818d">
-                  {d.date.slice(5)}
-                </text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-    </div>
+        );
+      })}
+      {daily.map((d, i) => {
+        const cx = padLeft + slot * (i + 0.5);
+        const x = cx - barW / 2;
+        const sh = (d.cost / niceMax) * h;
+        const y = padTop + h - sh;
+        return (
+          <g key={d.date}>
+            <rect x={x} y={y} width={barW} height={sh} fill="var(--accent)" rx="2">
+              <title>{`${d.date}: $${d.cost.toFixed(2)}`}</title>
+            </rect>
+            {i % labelEveryN === 0 && (
+              <text x={cx} y={padTop + h + 16} textAnchor="middle" fontSize="10" fill="#7a818d">
+                {d.date.slice(5)}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
+}
+
+// Round up to a "nice" number so the top gridline reads cleanly.
+function niceCeil(v: number): number {
+  if (v <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / pow;
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+function formatTick(v: number): string {
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}K`;
+  if (v >= 10) return v.toFixed(0);
+  return v.toFixed(1);
 }

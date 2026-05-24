@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation';
 import { api, apiPatch, readMe } from '../../../lib/api';
 import { DashLayout, type Workspace } from '../../../components/Layout';
-import { money, num } from '../../../lib/fmt';
+import { money, num, tokens } from '../../../lib/fmt';
+import PlanForm from './PlanForm';
+import { PlanHero } from '../../../components/PlanHero';
 
 interface PlanMeResp {
   ok: boolean;
@@ -51,14 +53,6 @@ async function updatePlanAction(formData: FormData) {
   redirect('/settings/plan');
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 export default async function Page() {
   const me = await readMe();
   if (!me) redirect('/login');
@@ -76,9 +70,6 @@ export default async function Page() {
   }
 
   const { subscription, period, totals, workspace } = planMe;
-  const used = totals.costUtilizationPercent;
-  const ringFill = Math.min(100, Math.max(0, used));
-  const hasAllowance = subscription.monthlyPriceUsd > 0;
 
   return (
     <DashLayout user={me} workspaces={workspaces}>
@@ -86,108 +77,31 @@ export default async function Page() {
         <div>
           <h1>My plan</h1>
           <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-            Configure your Claude subscription so the Overview can show "API-equivalent value used"
-            for the current billing period.
+            Pick your Claude subscription and billing day. Used to compute "API-equivalent value
+            used" each period.
           </div>
         </div>
       </div>
 
-      <div className="panel plan-hero" style={{ marginBottom: 18 }}>
-        {hasAllowance ? (
-          <div
-            className="donut"
-            style={{
-              background: `conic-gradient(var(--accent) ${ringFill}%, #202532 0)`,
-            }}
-          >
-            <div className="donut-center">
-              <strong>{Math.round(used)}%</strong>
-              <span>used</span>
-            </div>
-          </div>
-        ) : (
-          <div className="donut" style={{ background: '#202532' }}>
-            <div className="donut-center">
-              <strong>—</strong>
-              <span>no cap</span>
-            </div>
-          </div>
-        )}
-        <div>
-          <div className="flex wrap">
-            <h2 style={{ margin: 0 }}>{subscription.planName}</h2>
-            <span className="pill">{subscription.planKind}</span>
-          </div>
-          <div className="hero-amount" style={{ marginTop: 8 }}>
-            {money(totals.actualUsageCostUsd)}{' '}
-            <span className="muted">
-              {hasAllowance ? `/ ${money(subscription.monthlyPriceUsd)}` : '(API-equivalent value)'}
-            </span>
-          </div>
-          <div className="muted" style={{ marginTop: 6 }}>
-            Current period: {formatDate(period.from)} – {formatDate(period.to)} · Ends in{' '}
-            {num(period.daysRemaining)} day{period.daysRemaining === 1 ? '' : 's'} ·{' '}
-            {workspace.name}
-          </div>
-        </div>
-      </div>
+      <PlanHero
+        variant="full"
+        planName={subscription.planName}
+        cost={totals.actualUsageCostUsd}
+        monthly={subscription.monthlyPriceUsd}
+        periodFrom={period.from}
+        periodTo={period.to}
+        daysRemaining={period.daysRemaining}
+      />
 
       <div className="panel">
         <h2>Plan settings</h2>
-        <form action={updatePlanAction}>
-          <input type="hidden" name="workspaceId" value={workspace.id} />
-          <div className="panel-row cols-2">
-            <div className="field">
-              <label>Plan</label>
-              <select name="planKind" defaultValue={subscription.planKind}>
-                <option value="api">API (pay-as-you-go)</option>
-                <option value="pro">Claude Pro ($20/mo)</option>
-                <option value="max_5x">Claude Max 5x ($100/mo)</option>
-                <option value="max_20x">Claude Max 20x ($200/mo)</option>
-                <option value="custom">Custom</option>
-              </select>
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                Leave the price blank to use the preset default.
-              </div>
-            </div>
-            <div className="field">
-              <label>Monthly price (USD)</label>
-              <input
-                name="monthlyPriceUsd"
-                type="number"
-                min="0"
-                step="0.01"
-                defaultValue={subscription.monthlyPriceUsd || ''}
-                placeholder="auto"
-              />
-            </div>
-          </div>
-          <div className="panel-row cols-2">
-            <div className="field">
-              <label>Billing starts on day of month (1–28)</label>
-              <input
-                name="billingCycleDay"
-                type="number"
-                min="1"
-                max="28"
-                defaultValue={subscription.billingCycleDay}
-                required
-              />
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                Next billing: {formatDate(period.to)}
-              </div>
-            </div>
-            <div className="field">
-              <label>Current period</label>
-              <div className="muted" style={{ paddingTop: 6 }}>
-                {formatDate(period.from)} – {formatDate(period.to)}
-              </div>
-            </div>
-          </div>
-          <button className="primary" type="submit">
-            Save plan
-          </button>
-        </form>
+        <PlanForm
+          workspaceId={workspace.id}
+          defaultPlanKind={subscription.planKind}
+          defaultPriceUsd={subscription.monthlyPriceUsd}
+          defaultBillingDay={subscription.billingCycleDay}
+          action={updatePlanAction}
+        />
       </div>
 
       <div className="panel" style={{ marginTop: 16 }}>
@@ -205,21 +119,21 @@ export default async function Page() {
             <div className="label">Prompts</div>
             <div className="value">{num(totals.prompts)}</div>
           </div>
-          <div className="stat">
+          <div className="stat" title={`${num(totals.input)} input tokens`}>
             <div className="label">Input tokens</div>
-            <div className="value">{num(totals.input)}</div>
+            <div className="value">{tokens(totals.input)}</div>
           </div>
-          <div className="stat">
+          <div className="stat" title={`${num(totals.output)} output tokens`}>
             <div className="label">Output tokens</div>
-            <div className="value">{num(totals.output)}</div>
+            <div className="value">{tokens(totals.output)}</div>
           </div>
-          <div className="stat">
+          <div className="stat" title={`${num(totals.cacheRead)} cache read tokens`}>
             <div className="label">Cache read</div>
-            <div className="value">{num(totals.cacheRead)}</div>
+            <div className="value">{tokens(totals.cacheRead)}</div>
           </div>
-          <div className="stat">
+          <div className="stat" title={`${num(totals.cacheCreation)} cache write tokens`}>
             <div className="label">Cache write</div>
-            <div className="value">{num(totals.cacheCreation)}</div>
+            <div className="value">{tokens(totals.cacheCreation)}</div>
           </div>
         </div>
       </div>

@@ -89,7 +89,7 @@ async function ingestOne(
           schema.projects.pathHash,
         ],
         set: {
-          lastActiveAt: sql`GREATEST(${schema.projects.lastActiveAt}, ${endedAt})`,
+          lastActiveAt: sql`GREATEST(${schema.projects.lastActiveAt}, ${endedAt.toISOString()}::timestamptz)`,
           name: projectName,
         },
       })

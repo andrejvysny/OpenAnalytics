@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { api, readMe } from '../lib/api';
 import { DashLayout, type Workspace } from '../components/Layout';
+import { PlanHero } from '../components/PlanHero';
 import { money, num, tokens } from '../lib/fmt';
 
 interface OverviewResp {
@@ -113,101 +114,29 @@ export default async function Page() {
             {personalWs?.name ?? 'Personal workspace'}
           </div>
         </div>
-        <div className="flex">
-          <span className="pill muted">{Number(all.activeDays)} active days</span>
-        </div>
       </div>
 
       {activePlan ? (
-        <div className="panel plan-hero" style={{ marginBottom: 18 }}>
-          <div
-            className="donut"
-            style={{
-              background: `conic-gradient(var(--accent) ${Math.min(100, activePlan.totals.costUtilizationPercent)}%, #202532 0)`,
-            }}
-          >
-            <div className="donut-center">
-              <strong>{Math.round(activePlan.totals.costUtilizationPercent)}%</strong>
-              <span>used</span>
-            </div>
-          </div>
-          <div>
-            <div className="flex wrap">
-              <h2 style={{ margin: 0 }}>{activePlan.workspace.name}</h2>
-              <span className="pill">{activePlan.subscription.planName}</span>
-            </div>
-            <div className="hero-amount" style={{ marginTop: 8 }}>
-              {money(activePlan.totals.actualUsageCostUsd)}{' '}
-              <span className="muted">/ {money(activePlan.subscription.monthlyPriceUsd)}</span>
-            </div>
-            <div className="muted" style={{ marginTop: 6 }}>
-              Most active shared plan · {tokens(activePlan.totals.rawTokens)} ·{' '}
-              {activePlan.members.length} members
-            </div>
-          </div>
-          <div className="flex" style={{ justifyContent: 'flex-end' }}>
-            <a className="tab" href={`/plan/${activePlan.workspace.id}`}>
-              Open plan
-            </a>
-          </div>
-        </div>
+        <PlanHero
+          variant="slim"
+          planName={activePlan.subscription.planName}
+          cost={activePlan.totals.actualUsageCostUsd}
+          monthly={activePlan.subscription.monthlyPriceUsd}
+          rightLabel={`${activePlan.members.length} members`}
+          editHref={`/plan/${activePlan.workspace.id}`}
+          editLabel="Open plan"
+        />
       ) : personalPlan ? (
-        <div className="panel plan-hero" style={{ marginBottom: 18 }}>
-          {personalPlan.subscription.monthlyPriceUsd > 0 ? (
-            <div
-              className="donut"
-              style={{
-                background: `conic-gradient(var(--accent) ${Math.min(100, personalPlan.totals.costUtilizationPercent)}%, #202532 0)`,
-              }}
-              title="API-equivalent value vs. monthly fee"
-            >
-              <div className="donut-center">
-                <strong>{Math.round(personalPlan.totals.costUtilizationPercent)}%</strong>
-                <span>used</span>
-              </div>
-            </div>
-          ) : (
-            <div className="donut" style={{ background: '#202532' }}>
-              <div className="donut-center">
-                <strong>API</strong>
-                <span>no cap</span>
-              </div>
-            </div>
-          )}
-          <div>
-            <div className="flex wrap">
-              <h2 style={{ margin: 0 }}>{personalPlan.subscription.planName}</h2>
-              <span className="pill">{personalPlan.subscription.planKind}</span>
-            </div>
-            <div className="hero-amount" style={{ marginTop: 8 }}>
-              {money(personalPlan.totals.actualUsageCostUsd)}
-              {personalPlan.subscription.monthlyPriceUsd > 0 ? (
-                <span className="muted"> / {money(personalPlan.subscription.monthlyPriceUsd)}</span>
-              ) : (
-                <span className="muted"> · this period</span>
-              )}
-            </div>
-            <div className="muted" style={{ marginTop: 6 }}>
-              {new Date(personalPlan.period.from).toLocaleDateString('en', {
-                month: 'short',
-                day: 'numeric',
-              })}{' '}
-              –{' '}
-              {new Date(personalPlan.period.to).toLocaleDateString('en', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}{' '}
-              · Ends in {personalPlan.period.daysRemaining} day
-              {personalPlan.period.daysRemaining === 1 ? '' : 's'}
-            </div>
-          </div>
-          <div className="flex" style={{ justifyContent: 'flex-end' }}>
-            <a className="tab" href="/settings/plan">
-              Edit plan
-            </a>
-          </div>
-        </div>
+        <PlanHero
+          variant="slim"
+          planName={personalPlan.subscription.planName}
+          cost={personalPlan.totals.actualUsageCostUsd}
+          monthly={personalPlan.subscription.monthlyPriceUsd}
+          periodFrom={personalPlan.period.from}
+          periodTo={personalPlan.period.to}
+          daysRemaining={personalPlan.period.daysRemaining}
+          editHref="/settings/plan"
+        />
       ) : null}
 
       <div className="section-label">Today</div>
