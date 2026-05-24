@@ -1,0 +1,27 @@
+# OpenAnalytics — Caddy reverse proxy.
+# Automatic HTTPS via Let's Encrypt when CADDY_DOMAIN is a public hostname.
+# For local testing set CADDY_DOMAIN=localhost (Caddy serves on http://localhost).
+
+{
+  email {$CADDY_ACME_EMAIL}
+}
+
+{$CADDY_DOMAIN} {
+  encode zstd gzip
+
+  # API routes go to the Hono server.
+  @api path /api/* /health
+  handle @api {
+    reverse_proxy api:3001
+  }
+
+  # Everything else is the Next.js dashboard.
+  handle {
+    reverse_proxy web:3000
+  }
+
+  log {
+    output stdout
+    format console
+  }
+}

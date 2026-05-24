@@ -1,0 +1,25 @@
+**/node_modules
+**/.next
+**/dist
+**/build
+**/.turbo
+**/*.tsbuildinfo
+**/.env*
+!**/.env.example
+
+# repo housekeeping
+.git
+.github
+.vscode
+.idea
+*.log
+screenshots
+.playwright-cli
+vibenal
+vibenalytics
+
+# CLI binaries (built per-platform in release workflow)
+apps/cli/oa-*
+
+# Test fixtures aren't needed in runtime images
+packages/parser/__fixtures__

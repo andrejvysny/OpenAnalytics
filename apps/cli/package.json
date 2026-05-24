@@ -1,0 +1,29 @@
+{
+  "name": "@oa/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "oa": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "compile:darwin-arm64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile=oa-darwin-arm64",
+    "compile:darwin-x64": "bun build src/index.ts --compile --target=bun-darwin-x64 --outfile=oa-darwin-x64",
+    "compile:linux-x64": "bun build src/index.ts --compile --target=bun-linux-x64 --outfile=oa-linux-x64",
+    "compile:linux-arm64": "bun build src/index.ts --compile --target=bun-linux-arm64 --outfile=oa-linux-arm64",
+    "compile:windows-x64": "bun build src/index.ts --compile --target=bun-windows-x64 --outfile=oa-windows-x64.exe",
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "@oa/parser": "workspace:*",
+    "@oa/schema": "workspace:*",
+    "chokidar": "^4.0.1",
+    "commander": "^12.1.0",
+    "consola": "^3.2.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.13"
+  }
+}

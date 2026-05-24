@@ -1,0 +1,250 @@
+import { redirect } from 'next/navigation';
+import { api, readMe } from '../lib/api';
+import { DashLayout, type Workspace } from '../components/Layout';
+import { money, num, tokens } from '../lib/fmt';
+
+interface OverviewResp {
+  ok: boolean;
+  workspace_id: string;
+  today: Record<string, string | number>;
+  all_time: Record<string, string | number>;
+  top_projects: { id: string; name: string; cost: string; sessions: number; prompts: number }[];
+}
+
+interface HeatmapResp {
+  ok: boolean;
+  year: number;
+  days: { date: string; prompts: number; cost: number }[];
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export default async function Page() {
+  const me = await readMe();
+  if (!me) redirect('/login');
+  const wsResp = await api<{ ok: boolean; workspaces: Workspace[] }>('/api/workspaces');
+  const workspaces = wsResp?.workspaces ?? [];
+
+  const overview = await api<OverviewResp>('/api/overview');
+  const heat = await api<HeatmapResp>('/api/heatmap?year=' + new Date().getUTCFullYear());
+
+  if (!overview) {
+    return (
+      <DashLayout user={me} workspaces={workspaces}>
+        <h1>Overview</h1>
+        <p className="muted">No data yet. Get started by syncing from the CLI:</p>
+        <div className="copy-block">
+          oa login --api-url http://localhost:3001 --api-key &lt;your-key&gt;
+        </div>
+        <div className="copy-block">oa import</div>
+      </DashLayout>
+    );
+  }
+
+  const today = overview.today;
+  const all = overview.all_time;
+
+  // Filter & dedupe top projects: drop ones that look like raw UUIDs (no name observed).
+  const projectMap = new Map<
+    string,
+    { name: string; cost: number; sessions: number; prompts: number; id: string }
+  >();
+  for (const p of overview.top_projects) {
+    if (UUID_RE.test(p.name)) continue;
+    const key = p.name.toLowerCase();
+    const cost = Number(p.cost) || 0;
+    const existing = projectMap.get(key);
+    if (existing) {
+      existing.cost += cost;
+      existing.sessions += Number(p.sessions) || 0;
+      existing.prompts += Number(p.prompts) || 0;
+    } else {
+      projectMap.set(key, {
+        id: p.id,
+        name: p.name,
+        cost,
+        sessions: Number(p.sessions) || 0,
+        prompts: Number(p.prompts) || 0,
+      });
+    }
+  }
+  const projects = Array.from(projectMap.values()).sort((a, b) => b.cost - a.cost);
+  const maxCost = Math.max(...projects.map((p) => p.cost), 1);
+  const maxPrompts = Math.max(...(heat?.days.map((d) => d.prompts) ?? [0]), 1);
+
+  const personalWs = workspaces.find((w) => w.id === overview.workspace_id);
+
+  return (
+    <DashLayout user={me} workspaces={workspaces}>
+      <div className="page-header">
+        <div>
+          <h1>Overview</h1>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            {personalWs?.name ?? 'Personal workspace'}
+          </div>
+        </div>
+        <div className="flex">
+          <span className="pill muted">{Number(all.activeDays)} active days</span>
+        </div>
+      </div>
+
+      <div className="section-label">Today</div>
+      <div className="stats-grid">
+        <div className="stat">
+          <div className="label">Cost</div>
+          <div className="value">{money(today.cost)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Sessions</div>
+          <div className="value">{num(today.sessions)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Prompts</div>
+          <div className="value">{num(today.prompts)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Lines</div>
+          <div className="value">
+            <span className="diff-plus">+{num(today.added)}</span>{' '}
+            <span className="diff-minus">−{num(today.removed)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="section-label">All-time</div>
+      <div className="stats-grid">
+        <div className="stat accent">
+          <div className="label">Cost</div>
+          <div className="value">{money(all.cost)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Sessions</div>
+          <div className="value">{num(all.sessions)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Prompts</div>
+          <div className="value">{num(all.prompts)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Active days</div>
+          <div className="value">{num(all.activeDays)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Input tokens</div>
+          <div className="value">{tokens(all.input)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Output tokens</div>
+          <div className="value">{tokens(all.output)}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Cache read</div>
+          <div className="value">{tokens(all.cache_read)}</div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="flex spread" style={{ marginBottom: 12 }}>
+          <h2 style={{ margin: 0 }}>Activity · {heat?.year}</h2>
+          {heat && (
+            <div className="heatmap-legend">
+              <span>less</span>
+              <div className="scale">
+                <div style={{ background: 'rgba(255,255,255,0.04)' }} />
+                <div style={{ background: 'rgba(79,140,255,0.22)' }} />
+                <div style={{ background: 'rgba(79,140,255,0.45)' }} />
+                <div style={{ background: 'rgba(79,140,255,0.75)' }} />
+                <div style={{ background: 'var(--accent)' }} />
+              </div>
+              <span>more</span>
+            </div>
+          )}
+        </div>
+        {heat ? (
+          <Heatmap days={heat.days} max={maxPrompts} year={heat.year} />
+        ) : (
+          <p className="muted">No data</p>
+        )}
+      </div>
+
+      <div className="panel">
+        <h2>Top projects</h2>
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th style={{ textAlign: 'right' }}>Sessions</th>
+              <th style={{ textAlign: 'right' }}>Prompts</th>
+              <th style={{ textAlign: 'right' }}>Cost</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {projects.slice(0, 25).map((p) => {
+              const w = (p.cost / maxCost) * 100;
+              return (
+                <tr key={p.id}>
+                  <td>{p.name}</td>
+                  <td className="num">{num(p.sessions)}</td>
+                  <td className="num">{num(p.prompts)}</td>
+                  <td className="num cost">{money(p.cost)}</td>
+                  <td style={{ width: 160 }}>
+                    <div className="bar-track">
+                      <div className="bar-fill" style={{ width: `${w}%` }} />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </DashLayout>
+  );
+}
+
+function Heatmap({
+  days,
+  max,
+  year,
+}: {
+  days: { date: string; prompts: number }[];
+  max: number;
+  year: number;
+}) {
+  const start = new Date(Date.UTC(year, 0, 1));
+  const map = new Map(days.map((d) => [d.date, d.prompts]));
+  // Align week start: day-of-week of Jan 1 → put weekday rows correctly
+  const startDow = start.getUTCDay();
+  const cells: { date: string; prompts: number; visible: boolean }[] = [];
+  for (let w = 0; w < 53; w++) {
+    for (let d = 0; d < 7; d++) {
+      const dayIndex = w * 7 + d - startDow;
+      const dt = new Date(start.getTime() + dayIndex * 86400000);
+      if (dt.getUTCFullYear() !== year) {
+        cells.push({ date: '', prompts: 0, visible: false });
+      } else {
+        const k = dt.toISOString().slice(0, 10);
+        cells.push({ date: k, prompts: map.get(k) ?? 0, visible: true });
+      }
+    }
+  }
+  return (
+    <div className="heatmap-wrap">
+      <div className="heatmap">
+        {cells.map((c, i) => {
+          if (!c.visible) return <div key={i} style={{ visibility: 'hidden' }} />;
+          const r = c.prompts / max;
+          const lvl = c.prompts === 0 ? 0 : r > 0.66 ? 4 : r > 0.33 ? 3 : r > 0.1 ? 2 : 1;
+          return (
+            <div
+              key={i}
+              className={`cell${lvl ? ' l' + lvl : ''}`}
+              title={`${c.date}: ${c.prompts} prompts`}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}

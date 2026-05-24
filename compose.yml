@@ -1,0 +1,92 @@
+# OpenAnalytics — production stack.
+#
+# Usage:
+#   cp .env.example .env       # then edit
+#   docker compose -f compose.yml up -d
+#
+# Bring-your-own Postgres: comment out the postgres service and set DATABASE_URL
+# in .env to point at your managed DB.
+
+x-image-tag: &image-tag ${OA_IMAGE_TAG:-latest}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-oa}
+      POSTGRES_USER: ${POSTGRES_USER:-oa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-oa}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [oa]
+
+  api:
+    image: ghcr.io/andrejvysny/openanalytics-api:${OA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgres://${POSTGRES_USER:-oa}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oa}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set (32+ chars)}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL}
+      PUBLIC_API_URL: ${PUBLIC_API_URL}
+      TRUST_PROXY: 'true'
+      OA_SKIP_MIGRATIONS: ${OA_SKIP_MIGRATIONS:-0}
+      OA_SKIP_SEED: ${OA_SKIP_SEED:-0}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [oa]
+
+  web:
+    image: ghcr.io/andrejvysny/openanalytics-web:${OA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL}
+      # Used only for server-side fetches inside the docker network.
+      INTERNAL_API_URL: http://api:3001
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [oa]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-admin@localhost}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    networks: [oa]
+
+networks:
+  oa:
+    driver: bridge
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,69 @@
+# OpenAnalytics — VPS deployment (plugs into existing Traefik v3 on `proxy` network).
+# Uses EXTERNAL Postgres — set DATABASE_URL in .env. No bundled postgres container,
+# saves disk on small VPSes and lets you point at a managed DB (Neon / Supabase / RDS).
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: docker/api.Dockerfile
+    image: openanalytics-api:local
+    container_name: oa-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set (postgres://user:pass@host:5432/db)}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set (32+ chars)}
+      PUBLIC_WEB_URL: https://${OA_DOMAIN}
+      PUBLIC_API_URL: https://${OA_DOMAIN}
+      TRUST_PROXY: 'true'
+      OA_SKIP_MIGRATIONS: ${OA_SKIP_MIGRATIONS:-0}
+      OA_SKIP_SEED: ${OA_SKIP_SEED:-0}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    networks: [internal, proxy]
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.docker.network=proxy'
+      - 'traefik.http.routers.oa-api.rule=Host(`${OA_DOMAIN}`) && (PathPrefix(`/api`) || Path(`/health`))'
+      - 'traefik.http.routers.oa-api.entrypoints=websecure'
+      - 'traefik.http.routers.oa-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}'
+      - 'traefik.http.routers.oa-api.priority=10'
+      - 'traefik.http.services.oa-api.loadbalancer.server.port=3001'
+
+  web:
+    build:
+      context: ../..
+      dockerfile: docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://${OA_DOMAIN}
+    image: openanalytics-web:local
+    container_name: oa-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: https://${OA_DOMAIN}
+      INTERNAL_API_URL: http://api:3001
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal, proxy]
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.docker.network=proxy'
+      - 'traefik.http.routers.oa-web.rule=Host(`${OA_DOMAIN}`)'
+      - 'traefik.http.routers.oa-web.entrypoints=websecure'
+      - 'traefik.http.routers.oa-web.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}'
+      - 'traefik.http.routers.oa-web.priority=1'
+      - 'traefik.http.services.oa-web.loadbalancer.server.port=3000'
+
+networks:
+  internal:
+    driver: bridge
+  proxy:
+    external: true
