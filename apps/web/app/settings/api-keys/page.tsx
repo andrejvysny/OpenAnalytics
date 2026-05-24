@@ -1,12 +1,21 @@
 import { redirect } from 'next/navigation';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { api, apiPost, readMe } from '../../../lib/api';
 import { DashLayout, type Workspace } from '../../../components/Layout';
 
 const INTERNAL_API =
   process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-// What we *display* to the user as the API URL for the CLI — must be the public one.
-const PUBLIC_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+// Derive the public-facing URL from the current request headers at render time.
+// Avoids Next.js's build-time inlining of NEXT_PUBLIC_* which would bake in the
+// CI default (http://localhost:3001) into the GHCR image.
+async function publicApiUrl(): Promise<string> {
+  const h = await headers();
+  const host = h.get('x-forwarded-host') ?? h.get('host');
+  const proto = h.get('x-forwarded-proto') ?? 'https';
+  if (host) return `${proto}://${host}`;
+  return process.env.PUBLIC_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+}
 
 interface KeysResp {
   ok: boolean;
@@ -43,6 +52,7 @@ async function revokeKeyAction(formData: FormData) {
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
   const me = await readMe();
+  const publicApi = await publicApiUrl();
   if (!me) redirect('/login');
   const { new: newKey } = await searchParams;
   const wsResp = await api<{ ok: boolean; workspaces: Workspace[] }>('/api/workspaces');
@@ -73,7 +83,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ n
             CLI setup:
           </div>
           <div className="copy-block">
-            oa login --api-url {PUBLIC_API} --api-key {newKey}
+            oa login --api-url {publicApi} --api-key {newKey}
           </div>
         </div>
       )}
