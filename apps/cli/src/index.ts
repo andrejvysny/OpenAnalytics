@@ -5,6 +5,7 @@ import { runDaemon } from './commands/daemon';
 import { runSync } from './commands/sync';
 import { runImport } from './commands/import';
 import { runStatus } from './commands/status';
+import { runServiceInstall, runServiceStatus, runServiceUninstall } from './commands/service';
 
 const program = new Command();
 
@@ -37,5 +38,21 @@ program
   .command('status')
   .description('Show config and pending-sync count')
   .action(() => runStatus());
+
+const service = program
+  .command('service')
+  .description('Manage the daemon as a background service (launchd / systemd)');
+service
+  .command('install')
+  .description('Register `oa daemon` to start at login + on reboot')
+  .action(() => runServiceInstall());
+service
+  .command('uninstall')
+  .description('Remove the registered background service')
+  .action(() => runServiceUninstall());
+service
+  .command('status')
+  .description('Show service status')
+  .action(() => runServiceStatus());
 
 program.parseAsync();
