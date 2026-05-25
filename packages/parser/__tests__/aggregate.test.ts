@@ -128,3 +128,56 @@ describe('claude-code aggregator (minimal fixture)', () => {
     expect(session.ended_at).toBe('2026-05-24T10:00:25.000Z');
   });
 });
+
+describe('claude-code aggregator (fallback cwd)', () => {
+  // A transcript with one assistant request that does NOT carry `cwd` on any
+  // event (e.g. a very-short Claude Code session). Without a fallback the
+  // parser would throw `path_hash (cwd never observed)`.
+  const sid = '00000000-0000-0000-0000-000000000042';
+  const events = [
+    {
+      type: 'user',
+      sessionId: sid,
+      promptId: 'p1',
+      timestamp: '2026-05-25T10:00:00.000Z',
+      message: { role: 'user', content: 'ping' },
+    },
+    {
+      type: 'assistant',
+      sessionId: sid,
+      timestamp: '2026-05-25T10:00:01.000Z',
+      message: {
+        role: 'assistant',
+        model: 'claude-opus-4-7',
+        content: [],
+        usage: { input_tokens: 1, output_tokens: 2 },
+      },
+    },
+  ];
+  const transcript = events.map((e) => JSON.stringify(e)).join('\n');
+
+  it('throws when no cwd was observed and no fallback given', () => {
+    expect(() => parseTranscript(sid, transcript)).toThrow(/path_hash/);
+  });
+
+  it('falls back to fallbackCwd when no cwd events were emitted', () => {
+    const s = parseTranscript(sid, transcript, {
+      fallbackCwd: '/Users/test/proj',
+      includeProjectName: true,
+    });
+    expect(s.path_hash).toBe(fnv1aHex('/Users/test/proj'));
+    expect(s.project_name).toBe('proj');
+  });
+
+  it('event-cwd wins over fallback when both are provided', () => {
+    const eventsWithCwd = [
+      { ...events[0], cwd: '/real/path' },
+      { ...events[1], cwd: '/real/path' },
+    ];
+    const t = eventsWithCwd.map((e) => JSON.stringify(e)).join('\n');
+    const s = parseTranscript(sid, t, {
+      fallbackCwd: '/different/path',
+    });
+    expect(s.path_hash).toBe(fnv1aHex('/real/path'));
+  });
+});

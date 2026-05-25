@@ -11,6 +11,10 @@ const BATCH = 50;
 
 export interface ImportCommandOpts {
   dryRun?: boolean;
+  // Ignore stored cursors and re-parse every discovered file. Useful for
+  // backfilling fields (e.g. project_name) onto sessions ingested by an older
+  // CLI version that didn't send them.
+  force?: boolean;
 }
 
 interface PendingSession {
@@ -43,7 +47,10 @@ async function runImportUnlocked(opts: ImportCommandOpts): Promise<void> {
   consola.info(`discovered ${files.length} transcript files`);
   if (files.length === 0) return;
 
-  const cursors = loadCursors();
+  // --force: start from a blank cursor map so every file is re-sent. The new
+  // cursor file is rewritten at the end with the up-to-date sizes.
+  const cursors = opts.force ? {} : loadCursors();
+  if (opts.force) consola.info('force: ignoring stored cursors, re-importing everything');
   const batch: PendingSession[] = [];
   let okCount = 0;
   let failCount = 0;

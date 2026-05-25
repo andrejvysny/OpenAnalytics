@@ -29,11 +29,17 @@ export interface AggregatorState {
   subagents: Map<string, number>;
   hashPath: (path: string) => string;
   includeProjectName: boolean;
+  fallback_cwd: string | null;
 }
 
 export interface AggregatorOptions {
   hashPath?: (path: string) => string;
   includeProjectName?: boolean;
+  // Used at finalize() when no event in the transcript carried a `cwd`.
+  // Claude Code stores transcripts under ~/.claude/projects/<slug>/, where
+  // the slug is the project cwd with `/` → `-` substitution, so the scanner
+  // can always reconstruct cwd from the file location.
+  fallbackCwd?: string;
 }
 
 export function newState(session_id: string, opts: AggregatorOptions = {}): AggregatorState {
@@ -62,6 +68,7 @@ export function newState(session_id: string, opts: AggregatorOptions = {}): Aggr
     subagents: new Map(),
     hashPath: opts.hashPath ?? fnv1aHex,
     includeProjectName: opts.includeProjectName === true,
+    fallback_cwd: opts.fallbackCwd ?? null,
   };
 }
 
@@ -224,6 +231,12 @@ export class AggregatorIncompleteError extends Error {
 }
 
 export function finalize(state: AggregatorState): Session {
+  // If no event in the transcript carried cwd, fall back to the project's
+  // directory (slug-decoded) when the caller provided one. Same hash path as
+  // event-based cwd, so sessions land in the same project either way.
+  if (!state.path_hash && state.fallback_cwd) {
+    ensurePath(state, state.fallback_cwd);
+  }
   if (!state.path_hash) throw new AggregatorIncompleteError('path_hash (cwd never observed)');
   if (!state.started_at || !state.ended_at) throw new AggregatorIncompleteError('timestamps');
 

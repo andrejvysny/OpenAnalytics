@@ -8,6 +8,8 @@ export interface LoginOpts {
   workspace?: string;
   sendHostname?: boolean;
   sendProjectName?: boolean;
+  // commander auto-maps `--no-send-project-name` to this key (= false).
+  // We keep both for clarity; explicit-false wins over explicit-true.
 }
 
 export async function runLogin(opts: LoginOpts): Promise<void> {
@@ -18,7 +20,9 @@ export async function runLogin(opts: LoginOpts): Promise<void> {
   if (opts.apiUrl) cfg.apiUrl = opts.apiUrl;
   if (opts.workspace) cfg.workspaceId = opts.workspace;
   if (opts.sendHostname === true) cfg.sendHostname = true;
-  if (opts.sendProjectName === true) cfg.sendProjectName = true;
+  // Explicit-false from `--no-send-project-name` wins over the default-on.
+  if (opts.sendProjectName === false) cfg.sendProjectName = false;
+  else if (opts.sendProjectName === true) cfg.sendProjectName = true;
 
   if (opts.apiKey) {
     cfg.apiKey = opts.apiKey;

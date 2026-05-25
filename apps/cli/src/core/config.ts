@@ -3,6 +3,12 @@ import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+// Bumped when defaults change in a way that needs to ignore stored values
+// written by an older CLI. v1 introduced `sendProjectName: true` as the
+// default — configs without `configVersion` had `false` written explicitly
+// by v0.1.2 and earlier, and should be treated as "no user choice yet".
+export const CONFIG_VERSION = 1;
+
 export interface CliConfig {
   apiUrl: string;
   apiKey: string | null;
@@ -13,6 +19,7 @@ export interface CliConfig {
   sendProjectName: boolean;
   workspaceSalt: string | null;
   lastUpdateCheckAt: string | null;
+  configVersion: number;
 }
 
 const APP = 'openanalytics';
@@ -47,12 +54,18 @@ export function loadConfig(): CliConfig {
       host: hostname(),
       machineId: randomUUID(),
       sendHostname: false,
-      sendProjectName: false,
+      sendProjectName: true,
       workspaceSalt: null,
       lastUpdateCheckAt: null,
+      configVersion: CONFIG_VERSION,
     };
   }
   const data = JSON.parse(readFileSync(p, 'utf8')) as Partial<CliConfig>;
+  // Configs written before v0.1.3 have no configVersion. v0.1.2 always wrote
+  // sendProjectName explicitly (even if the user never opted out), so we
+  // can't distinguish "user opted out" from "old default". Treat absent
+  // configVersion as "no choice yet" and apply the new default-on.
+  const migratingFromPreV1 = data.configVersion === undefined;
   return {
     apiUrl: data.apiUrl ?? process.env.OA_API_URL ?? 'http://localhost:3001',
     apiKey: data.apiKey ?? null,
@@ -60,9 +73,10 @@ export function loadConfig(): CliConfig {
     host: data.host ?? hostname(),
     machineId: data.machineId ?? randomUUID(),
     sendHostname: data.sendHostname === true,
-    sendProjectName: data.sendProjectName === true,
+    sendProjectName: migratingFromPreV1 ? true : data.sendProjectName !== false,
     workspaceSalt: data.workspaceSalt ?? null,
     lastUpdateCheckAt: data.lastUpdateCheckAt ?? null,
+    configVersion: CONFIG_VERSION,
   };
 }
 

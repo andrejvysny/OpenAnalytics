@@ -21,7 +21,8 @@ program
   .option('--api-key <key>', 'API key (oa_live_…)')
   .option('--workspace <id>', 'workspace id to attribute sessions to')
   .option('--send-hostname', 'Opt in to sending raw hostname')
-  .option('--send-project-name', 'Opt in to sending raw project basename')
+  .option('--send-project-name', 'Opt in to sending raw project basename (default on)')
+  .option('--no-send-project-name', 'Opt out of sending project basename')
   .action((opts) => runLogin(opts));
 
 program
@@ -39,7 +40,8 @@ program
   .command('import')
   .description('Backfill all historical sessions')
   .option('--dry-run', 'Print payload without sending or advancing cursors')
-  .action((opts) => runImport({ dryRun: opts.dryRun === true }));
+  .option('--force', 'Re-parse every transcript even if cursors say it is up to date')
+  .action((opts) => runImport({ dryRun: opts.dryRun === true, force: opts.force === true }));
 
 program
   .command('status')

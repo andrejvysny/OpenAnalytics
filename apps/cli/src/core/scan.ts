@@ -1,5 +1,5 @@
 import { readdirSync, statSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Session } from '@oa/schema';
 import { parseTranscript } from '@oa/parser/adapters/claude-code';
 import { projectsDir } from './config';
@@ -50,19 +50,27 @@ export function discoverTranscripts(): DiscoveredFile[] {
 }
 
 export function parseFile(file: DiscoveredFile, privacy: ParserPrivacyOptions): Session | null {
+  const fallbackCwd = slugToCwd(dirname(file.path));
   try {
     const content = readFileSync(file.path, 'utf8');
     const session = parseTranscript(file.sessionId, content, {
       hashPath: privacy.hashPath,
       includeProjectName: privacy.includeProjectName,
+      fallbackCwd,
     });
     for (const subagentPath of file.subagentPaths) {
-      const subagentId = subagentPath.slice(subagentPath.lastIndexOf('/') + 1, -'.jsonl'.length);
-      const subagent = parseTranscript(subagentId, readFileSync(subagentPath, 'utf8'), {
-        hashPath: privacy.hashPath,
-        includeProjectName: false,
-      });
-      mergeSubagent(session, subagent, subagentPath);
+      // Per-subagent guard: a single bad subagent file must not drop the parent.
+      try {
+        const subagentId = subagentPath.slice(subagentPath.lastIndexOf('/') + 1, -'.jsonl'.length);
+        const subagent = parseTranscript(subagentId, readFileSync(subagentPath, 'utf8'), {
+          hashPath: privacy.hashPath,
+          includeProjectName: false,
+          fallbackCwd,
+        });
+        mergeSubagent(session, subagent, subagentPath);
+      } catch (err) {
+        console.warn(`[scan] subagent skipped ${subagentPath}: ${(err as Error).message}`);
+      }
     }
     session.host = privacy.reportedHost;
     return session;
@@ -70,6 +78,17 @@ export function parseFile(file: DiscoveredFile, privacy: ParserPrivacyOptions): 
     console.error(`[scan] failed to parse ${file.sessionId}:`, (err as Error).message);
     return null;
   }
+}
+
+// Reconstruct the project cwd from the slug directory name. Claude Code stores
+// transcripts at ~/.claude/projects/<slug>/<uuid>.jsonl where <slug> is the
+// project absolute path with every `/` replaced by `-`. Inverse is lossy when
+// the original path contained literal hyphens, but that's also Claude's own
+// ambiguity — we match its convention.
+function slugToCwd(slugDir: string): string | undefined {
+  const slug = slugDir.slice(slugDir.lastIndexOf('/') + 1);
+  if (!slug.startsWith('-')) return undefined;
+  return slug.replace(/-/g, '/');
 }
 
 function findSubagentFiles(slugDir: string, sessionId: string): string[] {
