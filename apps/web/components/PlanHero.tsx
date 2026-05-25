@@ -63,7 +63,7 @@ export function PlanHero({
         >
           <div className="donut-center">
             <strong>{Math.round(showPercent)}%</strong>
-            <span>used</span>
+            <span>{apiEquivalent ? 'api equiv' : 'used'}</span>
           </div>
         </div>
       ) : (

@@ -42,6 +42,10 @@ const UNPRICED_WARNED = new Set<string>();
 export function normalizeModel(raw: string): { exact: string; family: string | null } {
   if (!raw) return { exact: raw, family: null };
   const lowered = raw.toLowerCase().trim();
+  // Compaction-summary sessions from the Rust `vibenalytics` CLI carry the
+  // synthetic placeholder model. They DO contain real usage tokens and
+  // therefore real cost — price them at the user's primary model (Opus 4.7).
+  if (lowered === '<synthetic>') return { exact: 'claude-opus-4-7', family: 'opus-4-7' };
   const noProvider = lowered.replace(/^anthropic\//, '');
   const noTier = noProvider.replace(/\[[^\]]*\]/g, '');
   const noDate = noTier.replace(/-\d{8}$/, '');
