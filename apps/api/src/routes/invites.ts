@@ -6,6 +6,8 @@ import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
 import { env } from '../env';
 import { emailReady, sendInviteEmail } from '../services/email';
+import { assertSingleSharedWorkspace } from '../services/workspace';
+import { currentPeriodStartIso } from '../services/billing';
 
 export const invitesRoute = new Hono<{ Variables: SessionVars }>();
 invitesRoute.use('*', sessionAuth);
@@ -39,8 +41,9 @@ invitesRoute.post('/', async (c) => {
   if (!parsed.success) return c.json({ ok: false, error: parsed.error.flatten() }, 400);
 
   const owner = await db
-    .select()
+    .select({ billingCycleDay: schema.workspaces.billingCycleDay })
     .from(schema.workspaceMembers)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
     .where(
       and(
         eq(schema.workspaceMembers.workspaceId, parsed.data.workspaceId),
@@ -52,7 +55,7 @@ invitesRoute.post('/', async (c) => {
   if (!owner[0]) return c.json({ ok: false, error: 'forbidden' }, 403);
 
   const token = newToken();
-  const trackingFrom = parsed.data.trackingFrom ?? new Date().toISOString().slice(0, 10);
+  const trackingFrom = parsed.data.trackingFrom ?? currentPeriodStartIso(owner[0].billingCycleDay);
   const expiresAt = new Date(Date.now() + parsed.data.ttlHours * 3600_000);
 
   const [row] = await db
@@ -153,12 +156,16 @@ invitesRoute.post('/:token/accept', async (c) => {
     )
     .limit(1);
   if (!existing[0]) {
-    const acceptedDate = new Date().toISOString().slice(0, 10);
+    try {
+      await assertSingleSharedWorkspace(db, userId);
+    } catch (err) {
+      return c.json({ ok: false, error: (err as Error).message }, 409);
+    }
     await db.insert(schema.workspaceMembers).values({
       workspaceId: inv.workspaceId,
       userId,
       role: inv.role,
-      trackingFrom: acceptedDate,
+      trackingFrom: inv.trackingFrom,
     });
   }
   await db

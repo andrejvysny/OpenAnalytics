@@ -5,6 +5,8 @@ import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
 import { defaultPriceFor, planNameFor, PLAN_KINDS, type PlanKind } from '../services/plans';
+import { assertSingleSharedWorkspace } from '../services/workspace';
+import { currentPeriodStartIso } from '../services/billing';
 
 export const workspacesRoute = new Hono<{ Variables: SessionVars }>();
 workspacesRoute.use('*', sessionAuth);
@@ -55,7 +57,14 @@ workspacesRoute.post('/', async (c) => {
   const userId = c.get('userId');
   const parsed = Create.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ ok: false, error: parsed.error.flatten() }, 400);
-  const today = new Date().toISOString().slice(0, 10);
+
+  try {
+    await assertSingleSharedWorkspace(db, userId);
+  } catch (err) {
+    return c.json({ ok: false, error: (err as Error).message }, 409);
+  }
+
+  const trackingFrom = currentPeriodStartIso(parsed.data.billingCycleDay);
   // Fill in preset price when omitted (treat explicit 0 as "free, no allowance").
   const presetPrice = defaultPriceFor(parsed.data.planKind);
   const effectivePrice = parsed.data.monthlyPriceUsd ?? presetPrice ?? null;
@@ -81,7 +90,7 @@ workspacesRoute.post('/', async (c) => {
       workspaceId: ws!.id,
       userId,
       role: 'owner',
-      trackingFrom: today,
+      trackingFrom,
     });
     return c.json({ ok: true, id: ws!.id });
   } catch (err) {

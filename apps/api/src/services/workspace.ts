@@ -29,6 +29,23 @@ export async function resolveWorkspace(
   return getOrCreatePersonalWorkspace(db, userId);
 }
 
+// Throws if userId is already a member of any non-personal (shared) workspace.
+// Used to enforce the "at most one shared workspace per user" rule on create + invite-accept.
+export async function assertSingleSharedWorkspace(db: Db, userId: string): Promise<void> {
+  const row = await db
+    .select({
+      workspaceId: schema.workspaceMembers.workspaceId,
+      name: schema.workspaces.name,
+    })
+    .from(schema.workspaceMembers)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
+    .where(and(eq(schema.workspaceMembers.userId, userId), eq(schema.workspaces.isPersonal, 0)))
+    .limit(1);
+  if (row[0]) {
+    throw new Error(`already a member of shared workspace "${row[0].name}"`);
+  }
+}
+
 export async function getOrCreatePersonalWorkspace(db: Db, userId: string): Promise<string> {
   const existing = await db
     .select({ id: schema.workspaces.id })

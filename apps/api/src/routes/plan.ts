@@ -5,6 +5,7 @@ import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
 import { getOrCreatePersonalWorkspace } from '../services/workspace';
 import { planNameFor, type PlanKind } from '../services/plans';
+import { currentPeriod } from '../services/billing';
 
 export const planRoute = new Hono<{ Variables: SessionVars }>();
 
@@ -75,17 +76,6 @@ planRoute.get('/me', async (c) => {
     },
   });
 });
-
-function currentPeriod(billingCycleDay: number): { from: Date; to: Date } {
-  const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate();
-  const startMonth = d >= billingCycleDay ? m : m - 1;
-  const from = new Date(Date.UTC(y, startMonth, billingCycleDay));
-  const to = new Date(Date.UTC(y, startMonth + 1, billingCycleDay));
-  return { from, to };
-}
 
 function round2(v: number): number {
   return Number(v.toFixed(2));
@@ -164,13 +154,7 @@ planRoute.get('/:workspaceId/split', async (c) => {
         linesRemoved: sql<number>`COALESCE(SUM(${schema.requests.linesRemoved}),0)`,
       })
       .from(schema.workspaceMembers)
-      .leftJoin(
-        schema.sessions,
-        and(
-          eq(schema.sessions.userId, schema.workspaceMembers.userId),
-          eq(schema.sessions.workspaceId, wsId),
-        ),
-      )
+      .leftJoin(schema.sessions, eq(schema.sessions.userId, schema.workspaceMembers.userId))
       .leftJoin(
         schema.requests,
         and(
@@ -252,13 +236,12 @@ planRoute.get('/:workspaceId/split', async (c) => {
       .innerJoin(
         schema.workspaceMembers,
         and(
-          eq(schema.workspaceMembers.workspaceId, schema.sessions.workspaceId),
+          eq(schema.workspaceMembers.workspaceId, wsId),
           eq(schema.workspaceMembers.userId, schema.sessions.userId),
         ),
       )
       .where(
         and(
-          eq(schema.sessions.workspaceId, wsId),
           gte(schema.requests.ts, from),
           lt(schema.requests.ts, to),
           gte(
