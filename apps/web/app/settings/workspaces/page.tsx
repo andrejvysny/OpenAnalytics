@@ -3,6 +3,16 @@ import Link from 'next/link';
 import { api, apiPost, readMe } from '../../../lib/api';
 import { DashLayout, type Workspace } from '../../../components/Layout';
 
+async function verifySmtpAction() {
+  'use server';
+  const r = await api<{ ok: boolean; error?: string }>('/api/system/email/verify');
+  const params = new URLSearchParams();
+  if (!r) params.set('smtp_error', 'request failed');
+  else if (r.ok) params.set('smtp_ok', '1');
+  else params.set('smtp_error', r.error ?? 'verify failed');
+  redirect(`/settings/workspaces?${params.toString()}`);
+}
+
 async function createWorkspaceAction(formData: FormData) {
   'use server';
   const name = String(formData.get('name') ?? '');
@@ -50,11 +60,17 @@ async function createInviteAction(formData: FormData) {
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ invited?: string; email_sent?: string; email_error?: string }>;
+  searchParams: Promise<{
+    invited?: string;
+    email_sent?: string;
+    email_error?: string;
+    smtp_ok?: string;
+    smtp_error?: string;
+  }>;
 }) {
   const me = await readMe();
   if (!me) redirect('/login');
-  const { invited, email_sent, email_error } = await searchParams;
+  const { invited, email_sent, email_error, smtp_ok, smtp_error } = await searchParams;
   const wsResp = await api<{ ok: boolean; workspaces: Workspace[] }>('/api/workspaces');
   const workspaces = wsResp?.workspaces ?? [];
   const sharedWorkspaces = workspaces.filter((w) => !w.isPersonal);
@@ -165,6 +181,9 @@ export default async function Page({
               <div className="field">
                 <label>Monthly price (USD)</label>
                 <input name="monthlyPriceUsd" type="number" min="0" step="0.01" placeholder="100" />
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                  Leave blank to use preset (Pro $20, Max 5x $100, Max 20x $200).
+                </div>
               </div>
               <div className="field">
                 <label>Billing cycle day</label>
@@ -217,6 +236,21 @@ export default async function Page({
               </button>
             </form>
           )}
+          <form action={verifySmtpAction} style={{ marginTop: 14 }}>
+            <button type="submit" className="tab">
+              Verify SMTP
+            </button>
+            {smtp_ok && (
+              <span className="muted" style={{ marginLeft: 10, color: '#3ddc84' }}>
+                SMTP ready
+              </span>
+            )}
+            {smtp_error && (
+              <span className="error" style={{ marginLeft: 10 }}>
+                {smtp_error}
+              </span>
+            )}
+          </form>
         </div>
       </div>
     </DashLayout>

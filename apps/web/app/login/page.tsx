@@ -3,22 +3,34 @@ import Link from 'next/link';
 import { callAuth, forwardSessionCookie } from '../../lib/auth-actions';
 import { BrandRow } from '../../components/Brand';
 
+// Block open-redirects: only same-origin relative paths.
+function safeNext(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw : '';
+  if (!s.startsWith('/') || s.startsWith('//')) return '/';
+  return s;
+}
+
 async function loginAction(formData: FormData) {
   'use server';
   const email = String(formData.get('email') ?? '');
   const password = String(formData.get('password') ?? '');
+  const next = safeNext(formData.get('next'));
   const r = await callAuth('/api/auth/login', { email, password });
-  if (!r.ok) redirect('/login?err=1');
+  if (!r.ok) {
+    const qs = new URLSearchParams({ err: '1', ...(next !== '/' ? { next } : {}) });
+    redirect(`/login?${qs.toString()}`);
+  }
   await forwardSessionCookie(r.setCookie);
-  redirect('/');
+  redirect(next);
 }
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ err?: string }>;
+  searchParams: Promise<{ err?: string; next?: string }>;
 }) {
-  const { err } = await searchParams;
+  const { err, next: nextRaw } = await searchParams;
+  const next = safeNext(nextRaw);
   return (
     <div className="auth">
       <div className="auth-card">
@@ -27,6 +39,7 @@ export default async function LoginPage({
         <p className="sub">Sign in to your OpenAnalytics account.</p>
         {err && <div className="error">Invalid email or password.</div>}
         <form action={loginAction}>
+          <input type="hidden" name="next" value={next} />
           <div className="field">
             <label>Email</label>
             <input type="email" name="email" required autoFocus />
@@ -40,7 +53,10 @@ export default async function LoginPage({
           </button>
         </form>
         <p className="sub" style={{ marginTop: 18, textAlign: 'center', marginBottom: 0 }}>
-          New here? <Link href="/signup">Create an account</Link>
+          New here?{' '}
+          <Link href={next !== '/' ? `/signup?next=${encodeURIComponent(next)}` : '/signup'}>
+            Create an account
+          </Link>
         </p>
       </div>
     </div>

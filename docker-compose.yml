@@ -42,6 +42,11 @@ services:
       SESSION_SECRET: dev-secret-dev-secret-dev-secret-dev-secret
       PUBLIC_WEB_URL: http://localhost:3000
       PUBLIC_API_URL: http://localhost:3001
+      SMTP_HOST: maildev
+      SMTP_PORT: '1025'
+      SMTP_SECURE: 'false'
+      SMTP_IGNORE_TLS: 'true'
+      EMAIL_FROM: OpenAnalytics <noreply@local>
     ports:
       - '3001:3001'
     volumes:
@@ -50,6 +55,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      maildev:
+        condition: service_started
+
+  maildev:
+    # https://github.com/maildev/maildev/blob/master/docs/docker.md
+    image: maildev/maildev
+    ports:
+      - '1080:1080' # web UI
+      - '1025:1025' # SMTP
 
   web:
     image: node:22-alpine
@@ -62,6 +76,7 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:3001
+      PUBLIC_API_URL: http://localhost:3001
       INTERNAL_API_URL: http://api:3001
     ports:
       - '3000:3000'

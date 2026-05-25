@@ -7,19 +7,26 @@ export function emailReady(): boolean {
   return emailEnabled;
 }
 
+export function resetTransport(): void {
+  cached = null;
+}
+
 function transport(): Transporter | null {
   if (!emailEnabled) return null;
   if (cached) return cached;
   // Implicit TLS on 465, STARTTLS on 587 unless SMTP_SECURE explicitly overrides.
   const secure = env.SMTP_SECURE ?? env.SMTP_PORT === 465;
+  const ignoreTLS = env.SMTP_IGNORE_TLS ?? false;
   cached = nodemailer.createTransport({
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
     secure,
+    ignoreTLS,
     auth:
       env.SMTP_USER && env.SMTP_PASSWORD
         ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD }
         : undefined,
+    ...(ignoreTLS ? { tls: { rejectUnauthorized: false } } : {}),
   });
   return cached;
 }
@@ -35,6 +42,7 @@ export async function verifyTransport(): Promise<{ ok: boolean; error?: string }
     await t.verify();
     return { ok: true };
   } catch (err) {
+    resetTransport();
     return { ok: false, error: (err as Error).message };
   }
 }

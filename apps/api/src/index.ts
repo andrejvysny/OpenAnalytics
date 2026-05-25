@@ -11,6 +11,8 @@ import { heatmapRoute } from './routes/heatmap';
 import { planRoute } from './routes/plan';
 import { workspacesRoute } from './routes/workspaces';
 import { invitesRoute } from './routes/invites';
+import { systemRoute } from './routes/system';
+import { emailReady, verifyTransport } from './services/email';
 
 const app = new Hono();
 
@@ -34,8 +36,17 @@ app.route('/api/heatmap', heatmapRoute);
 app.route('/api/plan', planRoute);
 app.route('/api/workspaces', workspacesRoute);
 app.route('/api/invites', invitesRoute);
+app.route('/api/system', systemRoute);
 
 const port = env.PORT;
 console.log(`[api] listening on :${port}`);
+
+if (emailReady()) {
+  verifyTransport().then((r) =>
+    r.ok ? console.log('[email] SMTP ready') : console.warn('[email] SMTP verify failed:', r.error),
+  );
+} else {
+  console.log('[email] disabled (SMTP_HOST unset)');
+}
 
 export default { port, fetch: app.fetch };

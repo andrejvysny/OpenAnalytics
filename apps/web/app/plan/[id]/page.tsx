@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { api, readMe } from '../../../lib/api';
+import { api, apiWithStatus, readMe } from '../../../lib/api';
 import { DashLayout, type Workspace } from '../../../components/Layout';
 import { money, num, pct, tokens } from '../../../lib/fmt';
 
@@ -56,12 +56,24 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const { id } = await params;
   const wsResp = await api<{ ok: boolean; workspaces: Workspace[] }>('/api/workspaces');
   const workspaces = wsResp?.workspaces ?? [];
-  const plan = await api<PlanResp>(`/api/plan/${id}/split`);
+  const planRes = await apiWithStatus<PlanResp>(`/api/plan/${id}/split`);
+  const plan = planRes.data;
 
   if (!plan) {
+    const title =
+      planRes.status === 403
+        ? "You don't have access to this workspace"
+        : planRes.status === 404
+          ? 'Workspace not found'
+          : 'Failed to load plan';
     return (
       <DashLayout user={me} workspaces={workspaces}>
-        <h1>Not found</h1>
+        <h1>{title}</h1>
+        {process.env.NODE_ENV !== 'production' && planRes.error && (
+          <pre className="muted" style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+            HTTP {planRes.status}: {planRes.error}
+          </pre>
+        )}
       </DashLayout>
     );
   }
@@ -101,7 +113,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             <span className="muted">/ {money(plan.subscription.monthlyPriceUsd)}</span>
           </div>
           <div className="muted" style={{ marginTop: 8 }}>
-            Estimated cost utilization. Member share uses request-level usage within this billing period.
+            Estimated cost utilization. Member share uses request-level usage within this billing
+            period.
           </div>
           <div className="avatar-stack" style={{ marginTop: 14 }}>
             {plan.members.map((m) => (
@@ -117,7 +130,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           </div>
           <div>
             <span>Next billing</span>
-            <strong>{to.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}</strong>
+            <strong>
+              {to.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </strong>
           </div>
           <div>
             <span>Split mode</span>
@@ -160,7 +175,10 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                 <span className={`pill ${m.role === 'owner' ? '' : 'muted'}`}>{m.role}</span>
               </div>
               <div className="flex">
-                <span className="cost" style={{ color: memberColor.get(m.userId), fontWeight: 700 }}>
+                <span
+                  className="cost"
+                  style={{ color: memberColor.get(m.userId), fontWeight: 700 }}
+                >
                   {money(m.subscriptionShareUsd)} owed
                 </span>
                 <span className="muted">usage {money(m.actualUsageCostUsd)}</span>
@@ -170,13 +188,17 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             <div className="bar-track">
               <div
                 className="bar-fill"
-                style={{ width: `${Math.min(100, m.usagePercent)}%`, background: memberColor.get(m.userId) }}
+                style={{
+                  width: `${Math.min(100, m.usagePercent)}%`,
+                  background: memberColor.get(m.userId),
+                }}
               />
             </div>
             <div className="meta">
               fair share {pct(m.expectedSharePercent)} · usage delta{' '}
               <span className={m.fairShareDeltaPercent > 0 ? 'diff-minus' : 'diff-plus'}>
-                {m.fairShareDeltaPercent > 0 ? '+' : ''}{pct(m.fairShareDeltaPercent)}
+                {m.fairShareDeltaPercent > 0 ? '+' : ''}
+                {pct(m.fairShareDeltaPercent)}
               </span>{' '}
               · {tokens(m.rawTokens)} · {num(m.prompts)} prompts · {num(m.sessions)} sessions ·{' '}
               <span className="diff-plus">+{num(m.linesAdded)}</span>{' '}
@@ -192,7 +214,11 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           dates={uniqueDates(plan.dailyCost.map((d) => d.date))}
           members={plan.members}
           colors={memberColor}
-          values={plan.dailyCost.map((d) => ({ userId: d.userId, date: d.date, value: d.actualUsageCostUsd }))}
+          values={plan.dailyCost.map((d) => ({
+            userId: d.userId,
+            date: d.date,
+            value: d.actualUsageCostUsd,
+          }))}
           moneyAxis
         />
         <ChartPanel
@@ -200,7 +226,11 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           dates={uniqueDates(plan.dailyTokens.map((d) => d.date))}
           members={plan.members}
           colors={memberColor}
-          values={plan.dailyTokens.map((d) => ({ userId: d.userId, date: d.date, value: d.tokens }))}
+          values={plan.dailyTokens.map((d) => ({
+            userId: d.userId,
+            date: d.date,
+            value: d.tokens,
+          }))}
         />
       </div>
     </DashLayout>
@@ -264,7 +294,13 @@ function ChartPanel({
       {dates.length === 0 ? (
         <p className="muted">No activity in this period yet.</p>
       ) : (
-        <StackedBarChart dates={dates} members={members} values={values} colors={colors} moneyAxis={moneyAxis} />
+        <StackedBarChart
+          dates={dates}
+          members={members}
+          values={values}
+          colors={colors}
+          moneyAxis={moneyAxis}
+        />
       )}
     </div>
   );
@@ -320,10 +356,26 @@ function StackedBarChart({
                   const sh = (v / max) * h;
                   const y = h - yOff - sh;
                   yOff += sh;
-                  return <rect key={m.userId} x={x} y={y} width={barW} height={sh} fill={colors.get(m.userId)} rx="2" />;
+                  return (
+                    <rect
+                      key={m.userId}
+                      x={x}
+                      y={y}
+                      width={barW}
+                      height={sh}
+                      fill={colors.get(m.userId)}
+                      rx="2"
+                    />
+                  );
                 })}
                 {i % 3 === 0 && (
-                  <text x={x + barW / 2} y={h + 18} textAnchor="middle" fontSize="10" fill="#7a818d">
+                  <text
+                    x={x + barW / 2}
+                    y={h + 18}
+                    textAnchor="middle"
+                    fontSize="10"
+                    fill="#7a818d"
+                  >
                     {date.slice(5)}
                   </text>
                 )}

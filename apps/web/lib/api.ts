@@ -21,6 +21,32 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T | null
   return (await res.json()) as T;
 }
 
+export interface ApiResult<T> {
+  status: number;
+  data: T | null;
+  error: string | null;
+}
+
+export async function apiWithStatus<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
+  const c = await cookies();
+  const cookieHeader = c
+    .getAll()
+    .map((x) => `${x.name}=${x.value}`)
+    .join('; ');
+  const h = new Headers(init?.headers);
+  if (cookieHeader) h.set('cookie', cookieHeader);
+  try {
+    const res = await fetch(`${API}${path}`, { ...init, headers: h, cache: 'no-store' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return { status: res.status, data: null, error: text || res.statusText };
+    }
+    return { status: res.status, data: (await res.json()) as T, error: null };
+  } catch (err) {
+    return { status: 0, data: null, error: (err as Error).message };
+  }
+}
+
 // For POST-from-server actions; surfaces error text.
 export async function apiPost<T>(
   path: string,

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
-import { planNameFor, PLAN_KINDS, type PlanKind } from '../services/plans';
+import { defaultPriceFor, planNameFor, PLAN_KINDS, type PlanKind } from '../services/plans';
 
 export const workspacesRoute = new Hono<{ Variables: SessionVars }>();
 workspacesRoute.use('*', sessionAuth);
@@ -56,6 +56,9 @@ workspacesRoute.post('/', async (c) => {
   const parsed = Create.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ ok: false, error: parsed.error.flatten() }, 400);
   const today = new Date().toISOString().slice(0, 10);
+  // Fill in preset price when omitted (treat explicit 0 as "free, no allowance").
+  const presetPrice = defaultPriceFor(parsed.data.planKind);
+  const effectivePrice = parsed.data.monthlyPriceUsd ?? presetPrice ?? null;
 
   try {
     const [ws] = await db
@@ -66,10 +69,8 @@ workspacesRoute.post('/', async (c) => {
         ownerId: userId,
         planKind: parsed.data.planKind,
         planName: parsed.data.planName ?? planNameFor(parsed.data.planKind),
-        monthlyPriceUsd: parsed.data.monthlyPriceUsd?.toFixed(2) ?? null,
-        monthlyBudgetUsd: parsed.data.monthlyPriceUsd
-          ? Math.round(parsed.data.monthlyPriceUsd)
-          : null,
+        monthlyPriceUsd: effectivePrice !== null ? effectivePrice.toFixed(2) : null,
+        monthlyBudgetUsd: effectivePrice ? Math.round(effectivePrice) : null,
         splitMode: parsed.data.splitMode,
         planTier: parsed.data.planName ?? planNameFor(parsed.data.planKind),
         billingCycleDay: parsed.data.billingCycleDay,

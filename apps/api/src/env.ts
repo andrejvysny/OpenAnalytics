@@ -12,7 +12,14 @@ const Env = z.object({
   // SMTP — if SMTP_HOST is unset, email features are silently disabled.
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_SECURE: z.coerce.boolean().optional(),
+  SMTP_SECURE: z
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+    .transform((v) => (typeof v === 'boolean' ? v : v === 'true' || v === '1'))
+    .optional(),
+  SMTP_IGNORE_TLS: z
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+    .transform((v) => (typeof v === 'boolean' ? v : v === 'true' || v === '1'))
+    .optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   EMAIL_FROM: z.string().optional(),

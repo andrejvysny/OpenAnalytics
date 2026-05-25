@@ -6,15 +6,17 @@ import { DashLayout, type Workspace } from '../../../components/Layout';
 const INTERNAL_API =
   process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-// Derive the public-facing URL from the current request headers at render time.
-// Avoids Next.js's build-time inlining of NEXT_PUBLIC_* which would bake in the
-// CI default (http://localhost:3001) into the GHCR image.
+// Resolve the public-facing URL the CLI should hit.
+// In production, web + API share a host → derive from request headers.
+// In dev, they're on different ports → explicit PUBLIC_API_URL wins.
 async function publicApiUrl(): Promise<string> {
+  if (process.env.PUBLIC_API_URL) return process.env.PUBLIC_API_URL;
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
   const h = await headers();
   const host = h.get('x-forwarded-host') ?? h.get('host');
   const proto = h.get('x-forwarded-proto') ?? 'https';
   if (host) return `${proto}://${host}`;
-  return process.env.PUBLIC_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+  return 'http://localhost:3001';
 }
 
 interface KeysResp {
