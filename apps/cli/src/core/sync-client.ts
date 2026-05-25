@@ -1,4 +1,5 @@
 import type { Session, SyncRequest } from '@oa/schema';
+import { VERSION } from '../version';
 
 export interface SyncOptions {
   apiUrl: string;
@@ -12,7 +13,7 @@ export async function fetchWorkspaceSalt(opts: SyncOptions): Promise<string> {
   const res = await fetch(url, {
     headers: {
       authorization: `Bearer ${opts.apiKey}`,
-      'x-oa-cli-version': '0.1.0',
+      'x-oa-cli-version': VERSION,
     },
   });
   if (!res.ok) {
@@ -41,7 +42,7 @@ export async function postSync(
       headers: {
         authorization: `Bearer ${opts.apiKey}`,
         'content-type': 'application/json',
-        'x-oa-cli-version': '0.1.0',
+        'x-oa-cli-version': VERSION,
       },
       body: JSON.stringify(body),
       signal: controller.signal,

@@ -150,6 +150,46 @@ export function runServiceStatus(): void {
   }
 }
 
+// Restart a managed daemon service if one is installed. Best-effort.
+// Returns { restarted: true } on success, { restarted: false } if no service
+// is installed for the current platform, or { restarted: false, note } if a
+// service is installed but the restart command failed.
+export function restartService(): { restarted: boolean; note?: string } {
+  switch (platform()) {
+    case 'darwin': {
+      const path = darwinPlistPath();
+      if (!existsSync(path)) return { restarted: false };
+      const uid = process.getuid?.();
+      if (typeof uid === 'number') {
+        const k = spawnSync(
+          'launchctl',
+          ['kickstart', '-k', `gui/${uid}/dev.openanalytics.daemon`],
+          { stdio: 'ignore' },
+        );
+        if (k.status === 0) return { restarted: true };
+      }
+      // Fallback for older launchd: unload + load
+      spawnSync('launchctl', ['unload', path], { stdio: 'ignore' });
+      const r = spawnSync('launchctl', ['load', '-w', path], { stdio: 'ignore' });
+      return r.status === 0
+        ? { restarted: true }
+        : { restarted: false, note: 'launchctl restart failed' };
+    }
+    case 'linux': {
+      const path = linuxUnitPath();
+      if (!existsSync(path)) return { restarted: false };
+      const r = spawnSync('systemctl', ['--user', 'restart', 'oa-daemon'], {
+        stdio: 'ignore',
+      });
+      return r.status === 0
+        ? { restarted: true }
+        : { restarted: false, note: 'systemctl restart failed' };
+    }
+    default:
+      return { restarted: false };
+  }
+}
+
 function runOrDie(cmd: string, args: string[]): void {
   const r = spawnSync(cmd, args, { stdio: 'inherit' });
   if (r.status !== 0) {

@@ -5,6 +5,7 @@ import { discoverTranscripts, parseFile } from '../core/scan';
 import { fetchWorkspaceSalt, postSync } from '../core/sync-client';
 import { withSyncLock } from '../core/lock';
 import { parserPrivacyOptions } from '../core/privacy';
+import { maybeNotifyUpdate } from '../core/update-check';
 import type { Session, SyncRequest } from '@oa/schema';
 
 const BATCH = 50;
@@ -20,6 +21,7 @@ interface PendingSession {
 }
 
 export async function runSync(opts: SyncCommandOpts = {}): Promise<void> {
+  maybeNotifyUpdate();
   return withSyncLock(() => runSyncUnlocked(opts));
 }
 

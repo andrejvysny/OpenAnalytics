@@ -7,10 +7,12 @@ import { runSync } from './commands/sync';
 import { runImport } from './commands/import';
 import { runStatus } from './commands/status';
 import { runServiceInstall, runServiceStatus, runServiceUninstall } from './commands/service';
+import { runUpdate } from './commands/update';
+import { VERSION } from './version';
 
 const program = new Command();
 
-program.name('oa').description('OpenAnalytics — track coding-agent usage locally').version('0.1.1');
+program.name('oa').description('OpenAnalytics — track coding-agent usage locally').version(VERSION);
 
 program
   .command('login')
@@ -59,6 +61,12 @@ service
   .command('status')
   .description('Show service status')
   .action(() => runServiceStatus());
+
+program
+  .command('update')
+  .description('Update oa to the latest GitHub release')
+  .option('--check', 'Check for a newer version without installing')
+  .action((opts) => runUpdate({ check: opts.check === true }));
 
 program.parseAsync().catch((err: unknown) => {
   consola.error((err as Error).message);

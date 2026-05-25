@@ -12,6 +12,7 @@ export interface CliConfig {
   sendHostname: boolean;
   sendProjectName: boolean;
   workspaceSalt: string | null;
+  lastUpdateCheckAt: string | null;
 }
 
 const APP = 'openanalytics';
@@ -48,6 +49,7 @@ export function loadConfig(): CliConfig {
       sendHostname: false,
       sendProjectName: false,
       workspaceSalt: null,
+      lastUpdateCheckAt: null,
     };
   }
   const data = JSON.parse(readFileSync(p, 'utf8')) as Partial<CliConfig>;
@@ -60,6 +62,7 @@ export function loadConfig(): CliConfig {
     sendHostname: data.sendHostname === true,
     sendProjectName: data.sendProjectName === true,
     workspaceSalt: data.workspaceSalt ?? null,
+    lastUpdateCheckAt: data.lastUpdateCheckAt ?? null,
   };
 }
 
