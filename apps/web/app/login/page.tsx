@@ -27,9 +27,9 @@ async function loginAction(formData: FormData) {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ err?: string; next?: string }>;
+  searchParams: Promise<{ err?: string; next?: string; reset?: string }>;
 }) {
-  const { err, next: nextRaw } = await searchParams;
+  const { err, next: nextRaw, reset } = await searchParams;
   const next = safeNext(nextRaw);
   return (
     <div className="auth">
@@ -37,6 +37,14 @@ export default async function LoginPage({
         <BrandRow />
         <h1>Welcome back</h1>
         <p className="sub">Sign in to your OpenAnalytics account.</p>
+        {reset && (
+          <div
+            className="sub"
+            style={{ padding: '10px 12px', background: '#eef6ff', borderRadius: 6 }}
+          >
+            Password updated — sign in with your new password.
+          </div>
+        )}
         {err && <div className="error">Invalid email or password.</div>}
         <form action={loginAction}>
           <input type="hidden" name="next" value={next} />
@@ -52,6 +60,9 @@ export default async function LoginPage({
             Sign in
           </button>
         </form>
+        <p className="sub" style={{ marginTop: 12, textAlign: 'center', marginBottom: 0 }}>
+          <Link href="/forgot">Forgot your password?</Link>
+        </p>
         <p className="sub" style={{ marginTop: 18, textAlign: 'center', marginBottom: 0 }}>
           New here?{' '}
           <Link href={next !== '/' ? `/signup?next=${encodeURIComponent(next)}` : '/signup'}>

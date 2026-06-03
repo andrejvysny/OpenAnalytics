@@ -6,11 +6,19 @@ import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
 import { env } from '../env';
 import { emailReady, sendInviteEmail } from '../services/email';
-import { assertSingleSharedWorkspace } from '../services/workspace';
 import { currentPeriodStartIso } from '../services/billing';
 
 export const invitesRoute = new Hono<{ Variables: SessionVars }>();
 invitesRoute.use('*', sessionAuth);
+
+class InviteError extends Error {
+  constructor(
+    public status: 404 | 409 | 410,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 function newToken(): string {
   const b = new Uint8Array(32);
@@ -135,42 +143,62 @@ invitesRoute.get('/:token', async (c) => {
 invitesRoute.post('/:token/accept', async (c) => {
   const userId = c.get('userId');
   const token = c.req.param('token');
-  const rows = await db
-    .select()
-    .from(schema.invites)
-    .where(eq(schema.invites.token, token))
-    .limit(1);
-  const inv = rows[0];
-  if (!inv) return c.json({ ok: false, error: 'not found' }, 404);
-  if (inv.acceptedAt) return c.json({ ok: false, error: 'already accepted' }, 410);
-  if (new Date(inv.expiresAt) < new Date()) return c.json({ ok: false, error: 'expired' }, 410);
+  try {
+    // One transaction with a row lock on the invite: check-then-act must be atomic,
+    // otherwise two concurrent accepts can both pass the checks (double-join / break
+    // the single-shared-workspace invariant / 500 on duplicate insert).
+    const workspaceId = await db.transaction(async (tx) => {
+      const [inv] = await tx
+        .select()
+        .from(schema.invites)
+        .where(eq(schema.invites.token, token))
+        .limit(1)
+        .for('update');
+      if (!inv) throw new InviteError(404, 'not found');
+      if (inv.acceptedAt) throw new InviteError(410, 'already accepted');
+      if (new Date(inv.expiresAt) < new Date()) throw new InviteError(410, 'expired');
 
-  const existing = await db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(
-      and(
-        eq(schema.workspaceMembers.workspaceId, inv.workspaceId),
-        eq(schema.workspaceMembers.userId, userId),
-      ),
-    )
-    .limit(1);
-  if (!existing[0]) {
-    try {
-      await assertSingleSharedWorkspace(db, userId);
-    } catch (err) {
-      return c.json({ ok: false, error: (err as Error).message }, 409);
-    }
-    await db.insert(schema.workspaceMembers).values({
-      workspaceId: inv.workspaceId,
-      userId,
-      role: inv.role,
-      trackingFrom: inv.trackingFrom,
+      const [existing] = await tx
+        .select({ id: schema.workspaceMembers.userId })
+        .from(schema.workspaceMembers)
+        .where(
+          and(
+            eq(schema.workspaceMembers.workspaceId, inv.workspaceId),
+            eq(schema.workspaceMembers.userId, userId),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        // Enforce "at most one shared workspace" inside the same tx.
+        const [shared] = await tx
+          .select({ name: schema.workspaces.name })
+          .from(schema.workspaceMembers)
+          .innerJoin(
+            schema.workspaces,
+            eq(schema.workspaces.id, schema.workspaceMembers.workspaceId),
+          )
+          .where(
+            and(eq(schema.workspaceMembers.userId, userId), eq(schema.workspaces.isPersonal, 0)),
+          )
+          .limit(1);
+        if (shared)
+          throw new InviteError(409, `already a member of shared workspace "${shared.name}"`);
+        await tx.insert(schema.workspaceMembers).values({
+          workspaceId: inv.workspaceId,
+          userId,
+          role: inv.role,
+          trackingFrom: inv.trackingFrom,
+        });
+      }
+      await tx
+        .update(schema.invites)
+        .set({ acceptedAt: new Date() })
+        .where(eq(schema.invites.id, inv.id));
+      return inv.workspaceId;
     });
+    return c.json({ ok: true, workspaceId });
+  } catch (err) {
+    if (err instanceof InviteError) return c.json({ ok: false, error: err.message }, err.status);
+    throw err;
   }
-  await db
-    .update(schema.invites)
-    .set({ acceptedAt: new Date() })
-    .where(eq(schema.invites.id, inv.id));
-  return c.json({ ok: true, workspaceId: inv.workspaceId });
 });

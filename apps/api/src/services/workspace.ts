@@ -1,6 +1,48 @@
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { schema } from '@oa/db';
 import type { Db } from '../db';
+
+const uuidSchema = z.string().uuid();
+
+// Typed error so read routes can map to the right HTTP status without leaking internals.
+export class WorkspaceAccessError extends Error {
+  constructor(
+    public status: 400 | 403,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WorkspaceAccessError';
+  }
+}
+
+// For read routes (overview/explore/heatmap): if a workspace_id is supplied it must
+// be a valid UUID the user is a member of; otherwise fall back to the personal workspace.
+// Prevents both cross-tenant IDOR and raw 500s from invalid params.
+export async function resolveReadWorkspace(
+  db: Db,
+  userId: string,
+  workspaceId: string | null | undefined,
+): Promise<string> {
+  if (workspaceId == null || workspaceId === '') {
+    return getOrCreatePersonalWorkspace(db, userId);
+  }
+  if (!uuidSchema.safeParse(workspaceId).success) {
+    throw new WorkspaceAccessError(400, 'invalid workspace_id');
+  }
+  const member = await db
+    .select({ id: schema.workspaceMembers.workspaceId })
+    .from(schema.workspaceMembers)
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, workspaceId),
+        eq(schema.workspaceMembers.userId, userId),
+      ),
+    )
+    .limit(1);
+  if (member.length === 0) throw new WorkspaceAccessError(403, 'forbidden');
+  return workspaceId;
+}
 
 // Resolve target workspace for a sync payload:
 // - If workspace_id provided, verify user is a member.

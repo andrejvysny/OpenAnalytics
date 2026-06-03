@@ -27,11 +27,11 @@ export interface CostBreakdown {
   model_resolved?: string | null;
 }
 
-const MEMO = new Map<
-  string,
-  { fetchedAt: number; row: typeof schema.modelPrices.$inferSelect | null }
->();
+type PriceRow = typeof schema.modelPrices.$inferSelect | null;
+const MEMO = new Map<string, { fetchedAt: number; row: PriceRow }>();
+const INFLIGHT = new Map<string, Promise<PriceRow>>();
 const TTL_MS = 60_000;
+const MAX_MEMO = 2000; // bound module-global caches on a long-lived server
 const UNPRICED_WARNED = new Set<string>();
 
 // Normalize raw model identifiers from JSONL into canonical price-table ids.
@@ -58,9 +58,24 @@ export function normalizeModel(raw: string): { exact: string; family: string | n
 async function loadPrice(db: Db, agentKind: string, model: string, at: Date) {
   const key = `${agentKind}::${model}::${at.toISOString().slice(0, 10)}`;
   const cached = MEMO.get(key);
-  const now = Date.now();
-  if (cached && now - cached.fetchedAt < TTL_MS) return cached.row;
+  if (cached && Date.now() - cached.fetchedAt < TTL_MS) return cached.row;
 
+  // Collapse concurrent misses for the same key into one query — avoids a
+  // thundering herd of identical SELECTs when a request batch first sees a model.
+  const inflight = INFLIGHT.get(key);
+  if (inflight) return inflight;
+  const promise = fetchPrice(db, agentKind, model, at, key).finally(() => INFLIGHT.delete(key));
+  INFLIGHT.set(key, promise);
+  return promise;
+}
+
+async function fetchPrice(
+  db: Db,
+  agentKind: string,
+  model: string,
+  at: Date,
+  key: string,
+): Promise<PriceRow> {
   const { exact, family } = normalizeModel(model);
 
   const baseConds = (modelEqExpr: ReturnType<typeof eq>) =>
@@ -101,12 +116,18 @@ async function loadPrice(db: Db, agentKind: string, model: string, at: Date) {
 
   const row = rows[0] ?? null;
   if (!row && !UNPRICED_WARNED.has(model)) {
+    if (UNPRICED_WARNED.size > MAX_MEMO) UNPRICED_WARNED.clear();
     UNPRICED_WARNED.add(model);
     console.warn(
       `[pricing] no price row for agentKind=${agentKind} model="${model}" (normalized=${exact}, family=${family}) at ${at.toISOString()} — cost will be 0`,
     );
   }
-  MEMO.set(key, { fetchedAt: now, row });
+  MEMO.set(key, { fetchedAt: Date.now(), row });
+  // Evict oldest entry when the cache grows past its cap (Map preserves insertion order).
+  if (MEMO.size > MAX_MEMO) {
+    const oldest = MEMO.keys().next().value;
+    if (oldest !== undefined) MEMO.delete(oldest);
+  }
   return row;
 }
 

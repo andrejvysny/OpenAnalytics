@@ -3,7 +3,7 @@ import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
-import { getOrCreatePersonalWorkspace } from '../services/workspace';
+import { resolveReadWorkspace, WorkspaceAccessError } from '../services/workspace';
 
 export const heatmapRoute = new Hono<{ Variables: SessionVars }>();
 
@@ -12,8 +12,13 @@ heatmapRoute.use('*', sessionAuth);
 heatmapRoute.get('/', async (c) => {
   const userId = c.get('userId');
   const year = Number(c.req.query('year')) || new Date().getUTCFullYear();
-  const wsParam = c.req.query('workspace_id');
-  const wsId = wsParam ?? (await getOrCreatePersonalWorkspace(db, userId));
+  let wsId: string;
+  try {
+    wsId = await resolveReadWorkspace(db, userId, c.req.query('workspace_id'));
+  } catch (e) {
+    if (e instanceof WorkspaceAccessError) return c.json({ ok: false, error: e.message }, e.status);
+    throw e;
+  }
 
   const from = new Date(Date.UTC(year, 0, 1));
   const to = new Date(Date.UTC(year + 1, 0, 1));

@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 
+// AGPL-3.0 §13: offer the Corresponding Source to all network users. Override with
+// NEXT_PUBLIC_SOURCE_URL (e.g. pin to the deployed commit) at build time.
+const SOURCE_URL =
+  process.env.NEXT_PUBLIC_SOURCE_URL ?? 'https://github.com/andrejvysny/OpenAnalytics';
+
 export interface SidebarUser {
   name: string;
   email: string;
@@ -101,6 +106,9 @@ export function DashLayout({
             </button>
           </form>
         </div>
+        <a className="source-offer" href={SOURCE_URL} target="_blank" rel="noreferrer">
+          Source code (AGPL-3.0)
+        </a>
       </aside>
       <main className="main">{children}</main>
     </div>

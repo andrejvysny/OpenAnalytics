@@ -46,6 +46,7 @@ export const sessions = pgTable(
       .notNull()
       .default(0),
     reasoningTokens: bigint('reasoning_tokens', { mode: 'number' }).notNull().default(0),
+    extraTotalTokens: bigint('extra_total_tokens', { mode: 'number' }).notNull().default(0),
     linesAdded: integer('lines_added').notNull().default(0),
     linesRemoved: integer('lines_removed').notNull().default(0),
     promptCount: integer('prompt_count').notNull().default(0),
@@ -63,41 +64,60 @@ export const sessions = pgTable(
   ],
 );
 
-export const prompts = pgTable('prompts', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  sessionId: uuid('session_id')
-    .notNull()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
-  idx: integer('idx').notNull(),
-  ts: timestamp('ts', { withTimezone: true }).notNull(),
-  length: integer('length').notNull(),
-  requestCount: integer('request_count').notNull().default(0),
-  command: text('command'),
-  skills: jsonb('skills').notNull().default([]),
-});
+export const prompts = pgTable(
+  'prompts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    idx: integer('idx').notNull(),
+    ts: timestamp('ts', { withTimezone: true }).notNull(),
+    length: integer('length').notNull(),
+    requestCount: integer('request_count').notNull().default(0),
+    command: text('command'),
+    skills: jsonb('skills').notNull().default([]),
+  },
+  // FK alone is not indexed by Postgres; ingest deletes/joins by session_id.
+  (t) => [index('prompts_session_idx').on(t.sessionId)],
+);
 
-export const requests = pgTable('requests', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  sessionId: uuid('session_id')
-    .notNull()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
-  promptIdx: integer('prompt_idx').notNull(),
-  ts: timestamp('ts', { withTimezone: true }).notNull(),
-  model: varchar('model', { length: 128 }).notNull(),
-  inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
-  outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
-  cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
-  cacheCreationTokens: bigint('cache_creation_tokens', { mode: 'number' }).notNull().default(0),
-  cacheCreation5mTokens: bigint('cache_creation_5m_tokens', { mode: 'number' })
-    .notNull()
-    .default(0),
-  cacheCreation1hTokens: bigint('cache_creation_1h_tokens', { mode: 'number' })
-    .notNull()
-    .default(0),
-  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
-  linesAdded: integer('lines_added').notNull().default(0),
-  linesRemoved: integer('lines_removed').notNull().default(0),
-});
+export const requests = pgTable(
+  'requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    promptIdx: integer('prompt_idx').notNull(),
+    // Precise request timestamp. ts_bucket is the hour-floored value used for
+    // bucketed range filters/grouping (see services/ingest.ts).
+    ts: timestamp('ts', { withTimezone: true }).notNull(),
+    tsBucket: timestamp('ts_bucket', { withTimezone: true }).notNull(),
+    model: varchar('model', { length: 128 }).notNull(),
+    inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
+    outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
+    cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
+    cacheCreationTokens: bigint('cache_creation_tokens', { mode: 'number' }).notNull().default(0),
+    cacheCreation5mTokens: bigint('cache_creation_5m_tokens', { mode: 'number' })
+      .notNull()
+      .default(0),
+    cacheCreation1hTokens: bigint('cache_creation_1h_tokens', { mode: 'number' })
+      .notNull()
+      .default(0),
+    reasoningTokens: bigint('reasoning_tokens', { mode: 'number' }).notNull().default(0),
+    extraTotalTokens: bigint('extra_total_tokens', { mode: 'number' }).notNull().default(0),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull().default('0'),
+    linesAdded: integer('lines_added').notNull().default(0),
+    linesRemoved: integer('lines_removed').notNull().default(0),
+  },
+  // The plan-split aggregations filter/group on ts_bucket and join by session_id.
+  // FKs are not auto-indexed by Postgres, so these are required at scale.
+  (t) => [
+    index('requests_ts_bucket_idx').on(t.tsBucket),
+    index('requests_session_ts_bucket_idx').on(t.sessionId, t.tsBucket),
+  ],
+);
 
 export const toolUsage = pgTable(
   'tool_usage',

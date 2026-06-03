@@ -27,7 +27,7 @@ cp .env.example .env
 docker compose -f compose.yml up -d
 ```
 
-The api container runs migrations (`drizzle-kit push`) and seeds the model-prices table on first boot. Subsequent boots are idempotent.
+The api container applies journaled migrations (`drizzle-kit migrate`) and seeds the model-prices table on first boot. Subsequent boots are idempotent and never destructive. Note: this expects a **fresh** database — migrations create the schema from the `0000_baseline`. To re-baseline an old dev DB created with `push`, recreate it (`docker compose down -v`).
 
 First-run admin account creation:
 
@@ -94,7 +94,7 @@ docker compose -f compose.yml pull
 docker compose -f compose.yml up -d
 ```
 
-The api entrypoint reruns `drizzle-kit push` on every boot; new schema changes apply automatically.
+The api entrypoint runs `drizzle-kit migrate` on every boot; only pending journaled migrations are applied (tracked in `__drizzle_migrations`), so upgrades are safe and additive.
 
 ## Backups
 

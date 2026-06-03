@@ -140,6 +140,12 @@ planRoute.get('/:workspaceId/split', async (c) => {
       .innerJoin(schema.users, eq(schema.users.id, schema.workspaceMembers.userId))
       .where(eq(schema.workspaceMembers.workspaceId, wsId));
 
+    // Split semantics (intentional): a shared plan covers ALL of each member's
+    // agent usage — sessions are joined by user_id only, NOT scoped to this
+    // workspace's sessions. So a member's personal-workspace usage also counts
+    // toward their share of the team plan. Backed by sessions_user_started_idx +
+    // requests_session_ts_bucket_idx. (If you ever want workspace-local splits,
+    // add `eq(schema.sessions.workspaceId, wsId)` to both joins below.)
     const usageRows = await db
       .select({
         userId: schema.workspaceMembers.userId,
@@ -150,6 +156,8 @@ planRoute.get('/:workspaceId/split', async (c) => {
         output: sql<number>`COALESCE(SUM(${schema.requests.outputTokens}),0)`,
         cacheRead: sql<number>`COALESCE(SUM(${schema.requests.cacheReadTokens}),0)`,
         cacheCreation: sql<number>`COALESCE(SUM(${schema.requests.cacheCreationTokens}),0)`,
+        reasoning: sql<number>`COALESCE(SUM(${schema.requests.reasoningTokens}),0)`,
+        extraTotal: sql<number>`COALESCE(SUM(${schema.requests.extraTotalTokens}),0)`,
         linesAdded: sql<number>`COALESCE(SUM(${schema.requests.linesAdded}),0)`,
         linesRemoved: sql<number>`COALESCE(SUM(${schema.requests.linesRemoved}),0)`,
       })
@@ -159,10 +167,10 @@ planRoute.get('/:workspaceId/split', async (c) => {
         schema.requests,
         and(
           eq(schema.requests.sessionId, schema.sessions.id),
-          gte(schema.requests.ts, from),
-          lt(schema.requests.ts, to),
+          gte(schema.requests.tsBucket, from),
+          lt(schema.requests.tsBucket, to),
           gte(
-            schema.requests.ts,
+            schema.requests.tsBucket,
             sql`GREATEST(${fromTs}, (${schema.workspaceMembers.trackingFrom})::timestamptz)`,
           ),
         ),
@@ -174,7 +182,13 @@ planRoute.get('/:workspaceId/split', async (c) => {
     const totalUsageCost = usageRows.reduce((s, r) => s + Number(r.actualUsageCostUsd), 0);
     const totalTokens = usageRows.reduce(
       (s, r) =>
-        s + Number(r.input) + Number(r.output) + Number(r.cacheRead) + Number(r.cacheCreation),
+        s +
+        Number(r.input) +
+        Number(r.output) +
+        Number(r.cacheRead) +
+        Number(r.cacheCreation) +
+        Number(r.reasoning) +
+        Number(r.extraTotal),
       0,
     );
     const expectedShares = effectiveExpectedShares(memberRows, ws.splitMode);
@@ -184,7 +198,12 @@ planRoute.get('/:workspaceId/split', async (c) => {
         const u = usageByUser.get(m.userId);
         const cost = u ? Number(u.actualUsageCostUsd) : 0;
         const rawTokens = u
-          ? Number(u.input) + Number(u.output) + Number(u.cacheRead) + Number(u.cacheCreation)
+          ? Number(u.input) +
+            Number(u.output) +
+            Number(u.cacheRead) +
+            Number(u.cacheCreation) +
+            Number(u.reasoning) +
+            Number(u.extraTotal)
           : 0;
         const usagePercent = percent(cost, totalUsageCost);
         const tokenPercent = percent(rawTokens, totalTokens);
@@ -215,6 +234,8 @@ planRoute.get('/:workspaceId/split', async (c) => {
           output: u?.output ?? 0,
           cacheRead: u?.cacheRead ?? 0,
           cacheCreation: u?.cacheCreation ?? 0,
+          reasoning: u?.reasoning ?? 0,
+          extraTotal: u?.extraTotal ?? 0,
           sessions: u?.sessions ?? 0,
           prompts: u?.prompts ?? 0,
           linesAdded: u?.linesAdded ?? 0,
@@ -227,9 +248,9 @@ planRoute.get('/:workspaceId/split', async (c) => {
     const dailyRows = await db
       .select({
         userId: schema.sessions.userId,
-        date: sql<string>`DATE(${schema.requests.ts} AT TIME ZONE 'UTC')`,
+        date: sql<string>`DATE(${schema.requests.tsBucket} AT TIME ZONE 'UTC')`,
         actualUsageCostUsd: sql<string>`COALESCE(SUM(CASE WHEN ${schema.requests.costUsd} > 0 THEN ${schema.requests.costUsd} ELSE ${schema.sessions.costUsd} * (${schema.requests.inputTokens} + ${schema.requests.outputTokens} + ${schema.requests.cacheReadTokens} + ${schema.requests.cacheCreationTokens}) / NULLIF(${schema.sessions.inputTokens} + ${schema.sessions.outputTokens} + ${schema.sessions.cacheReadTokens} + ${schema.sessions.cacheCreationTokens}, 0) END),0)`,
-        tokens: sql<number>`COALESCE(SUM(${schema.requests.inputTokens} + ${schema.requests.outputTokens} + ${schema.requests.cacheReadTokens} + ${schema.requests.cacheCreationTokens}),0)`,
+        tokens: sql<number>`COALESCE(SUM(${schema.requests.inputTokens} + ${schema.requests.outputTokens} + ${schema.requests.cacheReadTokens} + ${schema.requests.cacheCreationTokens} + ${schema.requests.reasoningTokens} + ${schema.requests.extraTotalTokens}),0)`,
       })
       .from(schema.requests)
       .innerJoin(schema.sessions, eq(schema.sessions.id, schema.requests.sessionId))
@@ -242,15 +263,15 @@ planRoute.get('/:workspaceId/split', async (c) => {
       )
       .where(
         and(
-          gte(schema.requests.ts, from),
-          lt(schema.requests.ts, to),
+          gte(schema.requests.tsBucket, from),
+          lt(schema.requests.tsBucket, to),
           gte(
-            schema.requests.ts,
+            schema.requests.tsBucket,
             sql`GREATEST(${fromTs}, (${schema.workspaceMembers.trackingFrom})::timestamptz)`,
           ),
         ),
       )
-      .groupBy(schema.sessions.userId, sql`DATE(${schema.requests.ts} AT TIME ZONE 'UTC')`);
+      .groupBy(schema.sessions.userId, sql`DATE(${schema.requests.tsBucket} AT TIME ZONE 'UTC')`);
 
     const daysRemaining = Math.max(0, Math.ceil((to.getTime() - Date.now()) / 86400000));
     return c.json({

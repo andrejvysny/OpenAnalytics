@@ -27,11 +27,17 @@ export async function fetchWorkspaceSalt(opts: SyncOptions): Promise<string> {
   return body.salt;
 }
 
+export interface SyncResult {
+  accepted: number;
+  ignored: number;
+  failed: string[];
+}
+
 export async function postSync(
   opts: SyncOptions,
   sessions: Session[],
   attempt = 1,
-): Promise<{ accepted: number; ignored: number }> {
+): Promise<SyncResult> {
   const body: SyncRequest = { workspace_id: opts.workspaceId, sessions };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -57,7 +63,8 @@ export async function postSync(
     clearTimeout(timeout);
   }
   if (res.status === 200) {
-    return (await res.json()) as { accepted: number; ignored: number };
+    const j = (await res.json()) as { accepted: number; ignored: number; failed?: string[] };
+    return { accepted: j.accepted, ignored: j.ignored, failed: j.failed ?? [] };
   }
   if ((res.status === 429 || res.status >= 500) && attempt < 6) {
     await backoff(attempt);

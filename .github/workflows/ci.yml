@@ -31,3 +31,11 @@ jobs:
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm -r typecheck
       - run: pnpm --filter @oa/parser test
+      # CLI has Bun tests but no package `test` script — run them directly.
+      - run: pnpm --filter @oa/cli exec bun test
+      # Catch broken journaled migrations against a real Postgres before release.
+      - run: pnpm --filter @oa/db migrate
+        env:
+          DATABASE_URL: postgres://oa:oa@localhost:5432/oa
+      # NOTE: `next lint` (web) is not configured (no ESLint flat config). Add an
+      # eslint.config.mjs + eslint-config-next, then re-enable `pnpm -r lint` here.

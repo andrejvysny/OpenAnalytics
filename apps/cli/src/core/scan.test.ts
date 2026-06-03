@@ -18,6 +18,7 @@ function makeSession(over: Partial<Session['tokens']> = {}): Session {
       cache_creation_5m: 0,
       cache_creation_1h: 0,
       reasoning: 0,
+      extra_total: 0,
       ...over,
     },
     lines_added: 0,
@@ -51,13 +52,14 @@ describe('mergeSubagent', () => {
   });
 
   it('still merges basic token totals', () => {
-    const parent = makeSession({ input: 10, output: 20, cache_read: 30, reasoning: 0 });
-    const child = makeSession({ input: 1, output: 2, cache_read: 3, reasoning: 4 });
+    const parent = makeSession({ input: 10, output: 20, cache_read: 30, reasoning: 0, extra_total: 5 });
+    const child = makeSession({ input: 1, output: 2, cache_read: 3, reasoning: 4, extra_total: 6 });
     mergeSubagent(parent, child, '/x/subagents/agent-bar.jsonl');
     expect(parent.tokens.input).toBe(11);
     expect(parent.tokens.output).toBe(22);
     expect(parent.tokens.cache_read).toBe(33);
     expect(parent.tokens.reasoning).toBe(4);
+    expect(parent.tokens.extra_total).toBe(11);
     expect(parent.subagents['claude-code-subagent']).toBe(1);
   });
 });

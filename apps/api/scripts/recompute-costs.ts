@@ -109,12 +109,15 @@ async function recomputeRequests(): Promise<Totals> {
   let lastId: string | null = null;
   while (true) {
     const conds = [];
-    if (since) conds.push(gte(schema.requests.ts, since));
+    // Filter on the indexed ts_bucket rather than the unindexed ts.
+    if (since) conds.push(gte(schema.requests.tsBucket, since));
     if (lastId) conds.push(gt(schema.requests.id, lastId));
+    // Always join sessions so we can price each request with its own agent_kind.
     let q = db
       .select({
         id: schema.requests.id,
         sessionId: schema.requests.sessionId,
+        agentKind: schema.sessions.agentKind,
         model: schema.requests.model,
         ts: schema.requests.ts,
         input: schema.requests.inputTokens,
@@ -126,11 +129,10 @@ async function recomputeRequests(): Promise<Totals> {
         costUsd: schema.requests.costUsd,
       })
       .from(schema.requests)
+      .innerJoin(schema.sessions, eq(schema.sessions.id, schema.requests.sessionId))
       .$dynamic();
     if (workspaceId) {
-      q = q
-        .innerJoin(schema.sessions, eq(schema.sessions.id, schema.requests.sessionId))
-        .where(and(eq(schema.sessions.workspaceId, workspaceId), ...conds));
+      q = q.where(and(eq(schema.sessions.workspaceId, workspaceId), ...conds));
     } else if (conds.length > 0) {
       q = q.where(and(...conds));
     }
@@ -143,7 +145,7 @@ async function recomputeRequests(): Promise<Totals> {
       const oldCost = Number(r.costUsd);
       t.oldTotal += oldCost;
       const cb = await computeCost(db, {
-        agentKind: 'claude-code',
+        agentKind: r.agentKind,
         model: r.model,
         startedAt: r.ts,
         inputTokens: r.input,

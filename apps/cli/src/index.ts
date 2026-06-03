@@ -8,6 +8,7 @@ import { runImport } from './commands/import';
 import { runStatus } from './commands/status';
 import { runServiceInstall, runServiceStatus, runServiceUninstall } from './commands/service';
 import { runUpdate } from './commands/update';
+import { runUsage } from './commands/usage';
 import { VERSION } from './version';
 
 const program = new Command();
@@ -47,6 +48,36 @@ program
   .command('status')
   .description('Show config and pending-sync count')
   .action(() => runStatus());
+
+const usage = program.command('usage').description('Show local usage summaries');
+usage
+  .command('daily')
+  .description('Show daily local usage')
+  .option('--agent <agent>', 'agent to summarize: claude, codex, opencode, gemini, all', 'claude')
+  .option('-b, --breakdown', 'Include per-model breakdown')
+  .option('--json', 'Print JSON')
+  .option('-j', 'Print JSON')
+  .action((opts) =>
+    runUsage('daily', {
+      agent: opts.agent,
+      json: opts.json === true || opts.j === true,
+      breakdown: opts.breakdown === true,
+    }),
+  );
+usage
+  .command('monthly')
+  .description('Show monthly local usage')
+  .option('--agent <agent>', 'agent to summarize: claude, codex, opencode, gemini, all', 'claude')
+  .option('-b, --breakdown', 'Include per-model breakdown')
+  .option('--json', 'Print JSON')
+  .option('-j', 'Print JSON')
+  .action((opts) =>
+    runUsage('monthly', {
+      agent: opts.agent,
+      json: opts.json === true || opts.j === true,
+      breakdown: opts.breakdown === true,
+    }),
+  );
 
 const service = program
   .command('service')

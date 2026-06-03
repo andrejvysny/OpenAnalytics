@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AgentKind = z.enum(['claude-code']);
+export const AgentKind = z.enum(['claude-code', 'codex', 'opencode', 'gemini']);
 export type AgentKind = z.infer<typeof AgentKind>;
 
 export const TokenCounts = z.object({
@@ -12,6 +12,7 @@ export const TokenCounts = z.object({
   cache_creation_5m: z.number().int().nonnegative().default(0),
   cache_creation_1h: z.number().int().nonnegative().default(0),
   reasoning: z.number().int().nonnegative().default(0),
+  extra_total: z.number().int().nonnegative().default(0),
 });
 export type TokenCounts = z.infer<typeof TokenCounts>;
 
@@ -33,13 +34,15 @@ export type Prompt = z.infer<typeof Prompt>;
 export const Request = z.object({
   prompt_idx: z.number().int().nonnegative(),
   ts: z.string().datetime(),
-  model: z.string(),
+  model: z.string().max(128),
   input_tokens: z.number().int().nonnegative(),
   output_tokens: z.number().int().nonnegative(),
   cache_read_tokens: z.number().int().nonnegative(),
   cache_creation_tokens: z.number().int().nonnegative(),
   cache_creation_5m_tokens: z.number().int().nonnegative().default(0),
   cache_creation_1h_tokens: z.number().int().nonnegative().default(0),
+  reasoning_tokens: z.number().int().nonnegative().default(0),
+  extra_total_tokens: z.number().int().nonnegative().default(0),
   lines_added: z.number().int().nonnegative(),
   lines_removed: z.number().int().nonnegative(),
 });
@@ -52,16 +55,18 @@ export const Session = z.object({
   project_name: z.string().max(255).optional(),
   started_at: z.string().datetime(),
   ended_at: z.string().datetime(),
-  model: z.string(),
-  cli_version: z.string().optional(),
+  model: z.string().max(128),
+  cli_version: z.string().max(64).optional(),
   host: z.string().max(255).optional(),
   tokens: TokenCounts,
   lines_added: z.number().int().nonnegative(),
   lines_removed: z.number().int().nonnegative(),
   lines_by_extension: z.record(z.string(), LineDiff).default({}),
   tools: z.record(z.string(), z.number().int().nonnegative()).default({}),
-  prompts: z.array(Prompt).default([]),
-  requests: z.array(Request).default([]),
+  // Upper bounds are generous (real sessions are far smaller) but cap pathological
+  // payloads before they reach the DB / a giant transaction. See sync body-limit too.
+  prompts: z.array(Prompt).max(100_000).default([]),
+  requests: z.array(Request).max(200_000).default([]),
   subagents: z.record(z.string(), z.number().int().nonnegative()).default({}),
 });
 export type Session = z.infer<typeof Session>;

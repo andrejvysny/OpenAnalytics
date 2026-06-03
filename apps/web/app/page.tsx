@@ -45,11 +45,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export default async function Page() {
   const me = await readMe();
   if (!me) redirect('/login');
-  const wsResp = await api<{ ok: boolean; workspaces: Workspace[] }>('/api/workspaces');
+  // Fetch independent resources concurrently (previously a 6-deep sequential waterfall).
+  const [wsResp, overview, heat, personalPlan] = await Promise.all([
+    api<{ ok: boolean; workspaces: Workspace[] }>('/api/workspaces'),
+    api<OverviewResp>('/api/overview'),
+    api<HeatmapResp>('/api/heatmap?year=' + new Date().getUTCFullYear()),
+    api<PlanMeResp>('/api/plan/me'),
+  ]);
   const workspaces = wsResp?.workspaces ?? [];
 
-  const overview = await api<OverviewResp>('/api/overview');
-  const heat = await api<HeatmapResp>('/api/heatmap?year=' + new Date().getUTCFullYear());
+  // Shared-plan summaries depend on the workspace list, so they run as a second wave.
   const sharedPlans = await Promise.all(
     workspaces
       .filter((w) => !w.isPersonal)
@@ -58,7 +63,6 @@ export default async function Page() {
   const activePlan = sharedPlans
     .filter((p): p is PlanSummaryResp => p !== null)
     .sort((a, b) => b.totals.actualUsageCostUsd - a.totals.actualUsageCostUsd)[0];
-  const personalPlan = await api<PlanMeResp>('/api/plan/me');
 
   if (!overview) {
     return (

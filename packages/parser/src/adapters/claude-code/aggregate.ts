@@ -163,6 +163,8 @@ function handleAssistant(state: AggregatorState, ev: RawAssistant) {
     cache_creation_tokens: req_cache_c,
     cache_creation_5m_tokens: req_cache_c_5m,
     cache_creation_1h_tokens: req_cache_c_1h,
+    reasoning_tokens: 0,
+    extra_total_tokens: 0,
     lines_added: req_added,
     lines_removed: req_removed,
   });
@@ -268,6 +270,7 @@ export function finalize(state: AggregatorState): Session {
       cache_creation_5m: state.cache_creation_5m_tokens,
       cache_creation_1h: state.cache_creation_1h_tokens,
       reasoning: state.reasoning_tokens,
+      extra_total: 0,
     },
     lines_added: state.lines_added,
     lines_removed: state.lines_removed,

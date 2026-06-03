@@ -20,7 +20,7 @@
 
 - Dev stack is `docker-compose.yml`: `docker compose up` starts Postgres, API on `3001`, web on `3000`, MailDev on `1080`; bootstrap with `docker compose exec api bun apps/api/scripts/dev-bootstrap.ts`.
 - Production stack is `compose.yml` (not `docker-compose.yml`): `docker compose -f compose.yml up -d` pulls GHCR images and fronts API/web with Caddy.
-- API container entrypoint waits for Postgres, runs `drizzle-kit push --force`, then seeds model prices; set `OA_SKIP_MIGRATIONS=1` or `OA_SKIP_SEED=1` only when managing those externally.
+- API container entrypoint waits for Postgres, runs `drizzle-kit migrate` (journaled, non-destructive), then seeds model prices; set `OA_SKIP_MIGRATIONS=1` or `OA_SKIP_SEED=1` only when managing those externally. (Prod never uses `push --force`.)
 - Web server-side fetches use `INTERNAL_API_URL` before `NEXT_PUBLIC_API_URL`; Docker sets this to `http://api:3001`.
 
 ## Privacy/data gotchas

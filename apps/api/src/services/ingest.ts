@@ -7,6 +7,7 @@ import { computeCost } from './pricing';
 export interface IngestResult {
   accepted: number;
   ignored: number;
+  failed: string[];
 }
 
 export async function ingestSessions(
@@ -16,7 +17,7 @@ export async function ingestSessions(
   sessions: SessionPayload[],
 ): Promise<IngestResult> {
   let accepted = 0;
-  let ignored = 0;
+  const failed: string[] = [];
 
   for (const s of sessions) {
     try {
@@ -24,10 +25,10 @@ export async function ingestSessions(
       accepted++;
     } catch (err) {
       console.error('[ingest] session failed', s.session_id, err);
-      ignored++;
+      failed.push(s.session_id);
     }
   }
-  return { accepted, ignored };
+  return { accepted, ignored: failed.length, failed };
 }
 
 async function ingestOne(
@@ -44,6 +45,7 @@ async function ingestOne(
 
   const sessionCacheCreation5m = s.tokens.cache_creation_5m ?? 0;
   const sessionCacheCreation1h = s.tokens.cache_creation_1h ?? 0;
+  const sessionExtraTotal = s.tokens.extra_total ?? 0;
   const cost = await computeCost(db, {
     agentKind: s.agent_kind,
     model: s.model,
@@ -72,6 +74,18 @@ async function ingestOne(
   );
 
   await db.transaction(async (tx) => {
+    // Ownership guard: session_id is a client-supplied UUID and the PK. Without this,
+    // a key holder who learns another tenant's session_id could reassign it (the upsert
+    // overwrites user_id/workspace_id) and the child-row DELETEs would destroy their data.
+    const [owner] = await tx
+      .select({ userId: schema.sessions.userId })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, s.session_id))
+      .limit(1);
+    if (owner && owner.userId !== userId) {
+      throw new Error(`session ${s.session_id} is owned by another user`);
+    }
+
     const projectName = s.project_name ?? s.path_hash;
     const [project] = await tx
       .insert(schema.projects)
@@ -117,6 +131,7 @@ async function ingestOne(
         cacheCreation5mTokens: sessionCacheCreation5m,
         cacheCreation1hTokens: sessionCacheCreation1h,
         reasoningTokens: s.tokens.reasoning,
+        extraTotalTokens: sessionExtraTotal,
         linesAdded: s.lines_added,
         linesRemoved: s.lines_removed,
         promptCount,
@@ -146,6 +161,7 @@ async function ingestOne(
           cacheCreation5mTokens: sessionCacheCreation5m,
           cacheCreation1hTokens: sessionCacheCreation1h,
           reasoningTokens: s.tokens.reasoning,
+          extraTotalTokens: sessionExtraTotal,
           linesAdded: s.lines_added,
           linesRemoved: s.lines_removed,
           promptCount,
@@ -178,21 +194,27 @@ async function ingestOne(
 
     if (s.requests.length > 0) {
       await tx.insert(schema.requests).values(
-        s.requests.map((r, idx) => ({
-          sessionId: s.session_id,
-          promptIdx: r.prompt_idx,
-          ts: new Date(r.ts),
-          model: r.model,
-          inputTokens: r.input_tokens,
-          outputTokens: r.output_tokens,
-          cacheReadTokens: r.cache_read_tokens,
-          cacheCreationTokens: r.cache_creation_tokens,
-          cacheCreation5mTokens: r.cache_creation_5m_tokens ?? 0,
-          cacheCreation1hTokens: r.cache_creation_1h_tokens ?? 0,
-          costUsd: (requestCosts[idx]?.total ?? 0).toFixed(6),
-          linesAdded: r.lines_added,
-          linesRemoved: r.lines_removed,
-        })),
+        s.requests.map((r, idx) => {
+          const tsBucket = bucketRequestTimestamp(new Date(r.ts));
+          return {
+            sessionId: s.session_id,
+            promptIdx: r.prompt_idx,
+            ts: tsBucket,
+            tsBucket,
+            model: r.model,
+            inputTokens: r.input_tokens,
+            outputTokens: r.output_tokens,
+            cacheReadTokens: r.cache_read_tokens,
+            cacheCreationTokens: r.cache_creation_tokens,
+            cacheCreation5mTokens: r.cache_creation_5m_tokens ?? 0,
+            cacheCreation1hTokens: r.cache_creation_1h_tokens ?? 0,
+            reasoningTokens: r.reasoning_tokens ?? 0,
+            extraTotalTokens: r.extra_total_tokens ?? 0,
+            costUsd: (requestCosts[idx]?.total ?? 0).toFixed(6),
+            linesAdded: r.lines_added,
+            linesRemoved: r.lines_removed,
+          };
+        }),
       );
     }
 
@@ -221,4 +243,10 @@ async function ingestOne(
 
     // daily_stats rollup is no longer maintained; overview/explore/heatmap SUM from sessions.
   });
+}
+
+function bucketRequestTimestamp(ts: Date): Date {
+  return new Date(
+    Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), ts.getUTCDate(), ts.getUTCHours()),
+  );
 }

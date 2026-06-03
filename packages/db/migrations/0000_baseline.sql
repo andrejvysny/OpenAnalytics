@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS "workspace_members" (
 	"workspace_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
 	"role" "member_role" DEFAULT 'member' NOT NULL,
+	"expected_share_bps" integer,
 	"tracking_from" date NOT NULL,
 	"joined_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "workspace_members_workspace_id_user_id_pk" PRIMARY KEY("workspace_id","user_id")
@@ -56,6 +57,10 @@ CREATE TABLE IF NOT EXISTS "workspaces" (
 	"slug" varchar(64) NOT NULL,
 	"name" varchar(255) NOT NULL,
 	"owner_id" uuid NOT NULL,
+	"plan_kind" varchar(32) DEFAULT 'custom' NOT NULL,
+	"plan_name" varchar(64),
+	"monthly_price_usd" numeric(12, 2),
+	"split_mode" varchar(32) DEFAULT 'usage' NOT NULL,
 	"plan_tier" varchar(64),
 	"monthly_budget_usd" integer,
 	"billing_cycle_day" integer DEFAULT 1 NOT NULL,
@@ -101,11 +106,17 @@ CREATE TABLE IF NOT EXISTS "requests" (
 	"session_id" uuid NOT NULL,
 	"prompt_idx" integer NOT NULL,
 	"ts" timestamp with time zone NOT NULL,
+	"ts_bucket" timestamp with time zone NOT NULL,
 	"model" varchar(128) NOT NULL,
 	"input_tokens" bigint DEFAULT 0 NOT NULL,
 	"output_tokens" bigint DEFAULT 0 NOT NULL,
 	"cache_read_tokens" bigint DEFAULT 0 NOT NULL,
 	"cache_creation_tokens" bigint DEFAULT 0 NOT NULL,
+	"cache_creation_5m_tokens" bigint DEFAULT 0 NOT NULL,
+	"cache_creation_1h_tokens" bigint DEFAULT 0 NOT NULL,
+	"reasoning_tokens" bigint DEFAULT 0 NOT NULL,
+	"extra_total_tokens" bigint DEFAULT 0 NOT NULL,
+	"cost_usd" numeric(12, 6) DEFAULT '0' NOT NULL,
 	"lines_added" integer DEFAULT 0 NOT NULL,
 	"lines_removed" integer DEFAULT 0 NOT NULL
 );
@@ -126,7 +137,10 @@ CREATE TABLE IF NOT EXISTS "sessions" (
 	"output_tokens" bigint DEFAULT 0 NOT NULL,
 	"cache_read_tokens" bigint DEFAULT 0 NOT NULL,
 	"cache_creation_tokens" bigint DEFAULT 0 NOT NULL,
+	"cache_creation_5m_tokens" bigint DEFAULT 0 NOT NULL,
+	"cache_creation_1h_tokens" bigint DEFAULT 0 NOT NULL,
 	"reasoning_tokens" bigint DEFAULT 0 NOT NULL,
+	"extra_total_tokens" bigint DEFAULT 0 NOT NULL,
 	"lines_added" integer DEFAULT 0 NOT NULL,
 	"lines_removed" integer DEFAULT 0 NOT NULL,
 	"prompt_count" integer DEFAULT 0 NOT NULL,
@@ -172,7 +186,9 @@ CREATE TABLE IF NOT EXISTS "model_prices" (
 	"input_per_mtok" numeric(12, 6) NOT NULL,
 	"output_per_mtok" numeric(12, 6) NOT NULL,
 	"cache_read_per_mtok" numeric(12, 6) NOT NULL,
-	"cache_write_per_mtok" numeric(12, 6) NOT NULL,
+	"cache_write_5m_per_mtok" numeric(12, 6) NOT NULL,
+	"cache_write_1h_per_mtok" numeric(12, 6) DEFAULT '0' NOT NULL,
+	"model_family" varchar(64),
 	"currency" varchar(8) DEFAULT 'USD' NOT NULL
 );
 --> statement-breakpoint
@@ -291,9 +307,13 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "projects_ws_active_idx" ON "projects" USING btree ("workspace_id","last_active_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "prompts_session_idx" ON "prompts" USING btree ("session_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "requests_ts_bucket_idx" ON "requests" USING btree ("ts_bucket");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "requests_session_ts_bucket_idx" ON "requests" USING btree ("session_id","ts_bucket");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "sessions_ws_started_idx" ON "sessions" USING btree ("workspace_id","started_at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "sessions_user_started_idx" ON "sessions" USING btree ("user_id","started_at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "sessions_project_started_idx" ON "sessions" USING btree ("project_id","started_at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "daily_stats_ws_date_idx" ON "daily_stats" USING btree ("workspace_id","date");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "daily_stats_user_date_idx" ON "daily_stats" USING btree ("user_id","date");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "model_prices_lookup_idx" ON "model_prices" USING btree ("agent_kind","model","effective_from");
+CREATE INDEX IF NOT EXISTS "model_prices_lookup_idx" ON "model_prices" USING btree ("agent_kind","model","effective_from");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "model_prices_family_idx" ON "model_prices" USING btree ("agent_kind","model_family","effective_from");

@@ -9,6 +9,8 @@ export interface DiscoveredFile {
   path: string;
   sessionId: string;
   size: number;
+  // Latest mtime across the parent transcript and its subagent files (ms).
+  mtimeMs: number;
   subagentPaths: string[];
 }
 
@@ -39,8 +41,20 @@ export function discoverTranscripts(): DiscoveredFile[] {
         if (!st.isFile()) continue;
         const sessionId = entry.slice(0, -'.jsonl'.length);
         const subagentPaths = findSubagentFiles(slugDir, sessionId);
-        const subagentSize = subagentPaths.reduce((sum, path) => sum + statSync(path).size, 0);
-        out.push({ path: fullPath, sessionId, size: st.size + subagentSize, subagentPaths });
+        let subagentSize = 0;
+        let mtimeMs = st.mtimeMs;
+        for (const sp of subagentPaths) {
+          const sst = statSync(sp);
+          subagentSize += sst.size;
+          if (sst.mtimeMs > mtimeMs) mtimeMs = sst.mtimeMs;
+        }
+        out.push({
+          path: fullPath,
+          sessionId,
+          size: st.size + subagentSize,
+          mtimeMs,
+          subagentPaths,
+        });
       } catch {
         // ignore
       }
@@ -130,6 +144,16 @@ export function mergeSubagent(parent: Session, child: Session, path: string): vo
   parent.tokens.cache_creation_5m += child.tokens.cache_creation_5m;
   parent.tokens.cache_creation_1h += child.tokens.cache_creation_1h;
   parent.tokens.reasoning += child.tokens.reasoning;
+  parent.tokens.extra_total += child.tokens.extra_total;
+  // Append the subagent's request rows so request-level aggregates (plan split,
+  // per-request billing) reconcile with the session totals above — otherwise the
+  // plan page (request-based) would undercount vs overview (session-based).
+  // Re-attribute them to the parent's most recent prompt (the spawning prompt) so
+  // they don't introduce phantom prompt indices into the prompt count.
+  const subPromptIdx = Math.max(parent.prompts.length - 1, 0);
+  for (const r of child.requests) {
+    parent.requests.push({ ...r, prompt_idx: subPromptIdx });
+  }
   parent.lines_added += child.lines_added;
   parent.lines_removed += child.lines_removed;
   for (const [ext, diff] of Object.entries(child.lines_by_extension)) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Seed canonical Anthropic model_prices effective 2026-01-01. Idempotent.
+// Seed canonical Anthropic model_prices. Idempotent.
 // Source: https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-05-24).
 
 import { createDb, schema } from '@oa/db';
@@ -8,7 +8,10 @@ import { and, eq } from 'drizzle-orm';
 const URL = process.env.DATABASE_URL ?? 'postgres://oa:oa@localhost:5432/oa';
 const db = createDb(URL);
 
-const FROM = new Date('2026-01-01T00:00:00Z');
+// Open-ended floor so historically backfilled sessions (`oa import`) are priced
+// rather than silently costing $0. These are the latest known rates applied across
+// all history; add dated rows if you need period-accurate historical pricing.
+const FROM = new Date('2020-01-01T00:00:00Z');
 
 // All rates are USD per million tokens.
 // Multipliers off base input: 5m = 1.25x, 1h = 2x, cache_read = 0.1x, output = 5x (4.x models).

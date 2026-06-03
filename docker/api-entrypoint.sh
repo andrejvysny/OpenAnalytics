@@ -1,7 +1,7 @@
 #!/bin/sh
 # OpenAnalytics API entrypoint:
 #   1. wait for DB
-#   2. push schema (idempotent)
+#   2. apply journaled migrations (drizzle-kit migrate — never destructive)
 #   3. seed model prices (idempotent)
 #   4. exec the main CMD
 set -eu
@@ -28,9 +28,11 @@ done
 echo "[entrypoint] postgres reachable"
 
 if [ "${OA_SKIP_MIGRATIONS:-0}" != "1" ]; then
-  echo "[entrypoint] pushing drizzle schema…"
-  cd /app/packages/db && pnpm exec drizzle-kit push --force || {
-    echo "[entrypoint] schema push failed" >&2; exit 1; }
+  echo "[entrypoint] applying drizzle migrations…"
+  # `migrate` applies only pending journaled migrations, tracked in the
+  # __drizzle_migrations table — it never drops/truncates data (unlike `push --force`).
+  cd /app/packages/db && pnpm exec drizzle-kit migrate || {
+    echo "[entrypoint] migration failed" >&2; exit 1; }
   cd /app
 fi
 

@@ -3,7 +3,7 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
-import { getOrCreatePersonalWorkspace } from '../services/workspace';
+import { resolveReadWorkspace, WorkspaceAccessError } from '../services/workspace';
 
 export const overviewRoute = new Hono<{ Variables: SessionVars }>();
 
@@ -11,10 +11,17 @@ overviewRoute.use('*', sessionAuth);
 
 overviewRoute.get('/', async (c) => {
   const userId = c.get('userId');
-  const wsParam = c.req.query('workspace_id');
-  const wsId = wsParam ?? (await getOrCreatePersonalWorkspace(db, userId));
+  let wsId: string;
+  try {
+    wsId = await resolveReadWorkspace(db, userId, c.req.query('workspace_id'));
+  } catch (e) {
+    if (e instanceof WorkspaceAccessError) return c.json({ ok: false, error: e.message }, e.status);
+    throw e;
+  }
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Start of today (UTC). Filter on the raw timestamp so the (workspace_id, started_at)
+  // index is usable — DATE(started_at …) would force a full scan.
+  const startOfTodayUtc = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 
   const [todayStats] = await db
     .select({
@@ -27,6 +34,8 @@ overviewRoute.get('/', async (c) => {
       cache_creation: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreationTokens}),0)`,
       cache_creation_5m: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreation5mTokens}),0)`,
       cache_creation_1h: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreation1hTokens}),0)`,
+      reasoning: sql<number>`COALESCE(SUM(${schema.sessions.reasoningTokens}),0)`,
+      extra_total: sql<number>`COALESCE(SUM(${schema.sessions.extraTotalTokens}),0)`,
       added: sql<number>`COALESCE(SUM(${schema.sessions.linesAdded}),0)`,
       removed: sql<number>`COALESCE(SUM(${schema.sessions.linesRemoved}),0)`,
       cost_input: sql<string>`COALESCE(SUM((${schema.sessions.costBreakdown}->>'input')::numeric),0)`,
@@ -40,7 +49,7 @@ overviewRoute.get('/', async (c) => {
       and(
         eq(schema.sessions.workspaceId, wsId),
         eq(schema.sessions.userId, userId),
-        gte(sql`DATE(${schema.sessions.startedAt} AT TIME ZONE 'UTC')`, today),
+        gte(schema.sessions.startedAt, startOfTodayUtc),
       ),
     );
 
@@ -55,6 +64,8 @@ overviewRoute.get('/', async (c) => {
       cache_creation: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreationTokens}),0)`,
       cache_creation_5m: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreation5mTokens}),0)`,
       cache_creation_1h: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreation1hTokens}),0)`,
+      reasoning: sql<number>`COALESCE(SUM(${schema.sessions.reasoningTokens}),0)`,
+      extra_total: sql<number>`COALESCE(SUM(${schema.sessions.extraTotalTokens}),0)`,
       added: sql<number>`COALESCE(SUM(${schema.sessions.linesAdded}),0)`,
       removed: sql<number>`COALESCE(SUM(${schema.sessions.linesRemoved}),0)`,
       activeDays: sql<number>`COUNT(DISTINCT DATE(${schema.sessions.startedAt} AT TIME ZONE 'UTC'))`,

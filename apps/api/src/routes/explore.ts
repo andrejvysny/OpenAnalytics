@@ -3,20 +3,28 @@ import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
-import { getOrCreatePersonalWorkspace } from '../services/workspace';
+import { resolveReadWorkspace, WorkspaceAccessError } from '../services/workspace';
 
 export const exploreRoute = new Hono<{ Variables: SessionVars }>();
 exploreRoute.use('*', sessionAuth);
 
 exploreRoute.get('/', async (c) => {
   const userId = c.get('userId');
-  const wsParam = c.req.query('workspace_id');
-  const wsId = wsParam ?? (await getOrCreatePersonalWorkspace(db, userId));
+  let wsId: string;
+  try {
+    wsId = await resolveReadWorkspace(db, userId, c.req.query('workspace_id'));
+  } catch (e) {
+    if (e instanceof WorkspaceAccessError) return c.json({ ok: false, error: e.message }, e.status);
+    throw e;
+  }
 
   const fromStr = c.req.query('from');
   const toStr = c.req.query('to');
   const to = toStr ? new Date(toStr) : new Date();
   const from = fromStr ? new Date(fromStr) : new Date(to.getTime() - 7 * 86400_000);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    return c.json({ ok: false, error: 'invalid from/to (expected ISO datetime)' }, 400);
+  }
 
   const where = and(
     eq(schema.sessions.workspaceId, wsId),
@@ -34,6 +42,8 @@ exploreRoute.get('/', async (c) => {
       output: sql<number>`COALESCE(SUM(${schema.sessions.outputTokens}),0)`,
       cacheRead: sql<number>`COALESCE(SUM(${schema.sessions.cacheReadTokens}),0)`,
       cacheCreation: sql<number>`COALESCE(SUM(${schema.sessions.cacheCreationTokens}),0)`,
+      reasoning: sql<number>`COALESCE(SUM(${schema.sessions.reasoningTokens}),0)`,
+      extraTotal: sql<number>`COALESCE(SUM(${schema.sessions.extraTotalTokens}),0)`,
       added: sql<number>`COALESCE(SUM(${schema.sessions.linesAdded}),0)`,
       removed: sql<number>`COALESCE(SUM(${schema.sessions.linesRemoved}),0)`,
       activeDays: sql<number>`COUNT(DISTINCT DATE(${schema.sessions.startedAt} AT TIME ZONE 'UTC'))`,
