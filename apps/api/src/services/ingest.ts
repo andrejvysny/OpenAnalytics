@@ -241,7 +241,7 @@ async function ingestOne(
       );
     }
 
-    // daily_stats rollup is no longer maintained; overview/explore/heatmap SUM from sessions.
+    // No rollup table: overview/explore/heatmap SUM directly from sessions.
   });
 }
 

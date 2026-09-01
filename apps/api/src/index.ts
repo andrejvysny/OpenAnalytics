@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { secureHeaders } from 'hono/secure-headers';
+import { bodyLimit } from 'hono/body-limit';
 import { sql } from 'drizzle-orm';
 import { db } from './db';
 import { env } from './env';
@@ -13,16 +15,43 @@ import { heatmapRoute } from './routes/heatmap';
 import { planRoute } from './routes/plan';
 import { workspacesRoute } from './routes/workspaces';
 import { invitesRoute } from './routes/invites';
+import { accountRoute } from './routes/account';
 import { systemRoute } from './routes/system';
 import { emailReady, verifyTransport } from './services/email';
 
 const VERSION = '0.1.0';
-const app = new Hono();
+
+interface AppVars {
+  requestId: string;
+}
+const app = new Hono<{ Variables: AppVars }>();
 
 // Never leak internal error details to clients; log server-side and return a generic 500.
+// request_id ties this line back to the per-request access log line below.
 app.onError((err, c) => {
-  console.error('[api] unhandled error', err);
+  console.error(`[api] unhandled error request_id=${c.get('requestId')}`, err);
   return c.json({ ok: false, error: 'internal server error' }, 500);
+});
+
+// Baseline security headers for a JSON-only API. No CSP (no HTML is ever served).
+// HSTS is intentionally left off: Caddy terminates TLS in prod and sets it there.
+app.use(
+  '*',
+  secureHeaders({
+    strictTransportSecurity: false,
+  }),
+);
+
+// One line per request for log correlation: method, path, status, duration, request id.
+// The id also goes out as `x-request-id` so a client-reported issue can be traced server-side.
+app.use('*', async (c, next) => {
+  const requestId = crypto.randomUUID().slice(0, 8);
+  c.set('requestId', requestId);
+  c.header('x-request-id', requestId);
+  const start = Date.now();
+  await next();
+  const durationMs = Date.now() - start;
+  console.log(`${c.req.method} ${c.req.path} ${c.res.status} ${durationMs}ms ${requestId}`);
 });
 
 // Advertise the API version so clients (CLI) can detect version skew.
@@ -39,6 +68,16 @@ app.use(
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['content-type', 'authorization'],
   }),
+);
+
+// Global request body cap for every route except /api/sync, which keeps its own generous
+// 16 MB route-level limit (metadata batches can be large; everything else is small JSON).
+const defaultBodyLimit = bodyLimit({
+  maxSize: 256 * 1024,
+  onError: (c) => c.json({ ok: false, error: 'payload too large' }, 413),
+});
+app.use('*', (c, next) =>
+  c.req.path.startsWith('/api/sync') ? next() : defaultBodyLimit(c, next),
 );
 
 // Liveness: process is up. Readiness (/health): the DB is actually reachable, so an
@@ -62,6 +101,7 @@ app.route('/api/heatmap', heatmapRoute);
 app.route('/api/plan', planRoute);
 app.route('/api/workspaces', workspacesRoute);
 app.route('/api/invites', invitesRoute);
+app.route('/api/account', accountRoute);
 app.route('/api/system', systemRoute);
 
 const port = env.PORT;

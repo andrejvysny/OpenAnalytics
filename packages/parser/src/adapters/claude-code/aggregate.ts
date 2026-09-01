@@ -17,6 +17,9 @@ export interface AggregatorState {
   cache_creation_tokens: number;
   cache_creation_5m_tokens: number;
   cache_creation_1h_tokens: number;
+  // Always 0 for claude-code: transcript usage has no reasoning split — thinking
+  // tokens are billed inside output_tokens. Populated only by agents whose logs
+  // expose e.g. output_tokens_details.reasoning_tokens (see usage-events.ts).
   reasoning_tokens: number;
   lines_added: number;
   lines_removed: number;
@@ -102,7 +105,10 @@ function handleAssistant(state: AggregatorState, ev: RawAssistant) {
   bumpTs(state, ev.timestamp);
   ensurePath(state, ev.cwd);
   if (ev.version && !state.cli_version) state.cli_version = ev.version;
+  // A truncated/corrupt line can carry type:"assistant" without a message
+  // object; dropping just this line beats throwing away the whole session.
   const msg = ev.message;
+  if (!msg || typeof msg !== 'object') return;
   if (msg.model) state.model = msg.model;
 
   const u = msg.usage;

@@ -4,12 +4,32 @@ import { z } from 'zod';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
+import { rateLimit } from '../middleware/rate-limit';
 import { defaultPriceFor, planNameFor, PLAN_KINDS, type PlanKind } from '../services/plans';
-import { assertSingleSharedWorkspace } from '../services/workspace';
+import { activeMember, assertSingleSharedWorkspace } from '../services/workspace';
 import { currentPeriodStartIso } from '../services/billing';
 
 export const workspacesRoute = new Hono<{ Variables: SessionVars }>();
+workspacesRoute.use('*', rateLimit({ windowMs: 60_000, max: 60 }));
 workspacesRoute.use('*', sessionAuth);
+
+// Owner check shared by every mutating workspace route. A soft-removed (left) row
+// never counts, so an ex-owner cannot keep administering the workspace.
+async function isActiveOwner(workspaceId: string, userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ userId: schema.workspaceMembers.userId })
+    .from(schema.workspaceMembers)
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, workspaceId),
+        eq(schema.workspaceMembers.userId, userId),
+        eq(schema.workspaceMembers.role, 'owner'),
+        activeMember,
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
 
 workspacesRoute.get('/', async (c) => {
   const userId = c.get('userId');
@@ -28,7 +48,7 @@ workspacesRoute.get('/', async (c) => {
     })
     .from(schema.workspaceMembers)
     .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
-    .where(eq(schema.workspaceMembers.userId, userId))
+    .where(and(eq(schema.workspaceMembers.userId, userId), activeMember))
     .orderBy(desc(schema.workspaces.createdAt));
   return c.json({
     ok: true,
@@ -110,18 +130,7 @@ const Update = z.object({
 workspacesRoute.patch('/:id', async (c) => {
   const userId = c.get('userId');
   const id = c.req.param('id');
-  const owner = await db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(
-      and(
-        eq(schema.workspaceMembers.workspaceId, id),
-        eq(schema.workspaceMembers.userId, userId),
-        eq(schema.workspaceMembers.role, 'owner'),
-      ),
-    )
-    .limit(1);
-  if (!owner[0]) return c.json({ ok: false, error: 'forbidden' }, 403);
+  if (!(await isActiveOwner(id, userId))) return c.json({ ok: false, error: 'forbidden' }, 403);
 
   const parsed = Update.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ ok: false, error: parsed.error.flatten() }, 400);
@@ -152,14 +161,19 @@ workspacesRoute.get('/:id/members', async (c) => {
   const userId = c.get('userId');
   const id = c.req.param('id');
   const mem = await db
-    .select()
+    .select({ userId: schema.workspaceMembers.userId })
     .from(schema.workspaceMembers)
     .where(
-      and(eq(schema.workspaceMembers.workspaceId, id), eq(schema.workspaceMembers.userId, userId)),
+      and(
+        eq(schema.workspaceMembers.workspaceId, id),
+        eq(schema.workspaceMembers.userId, userId),
+        activeMember,
+      ),
     )
     .limit(1);
   if (!mem[0]) return c.json({ ok: false, error: 'forbidden' }, 403);
 
+  // Active members only — left rows survive for billing history (see /api/plan/:id/split).
   const rows = await db
     .select({
       userId: schema.workspaceMembers.userId,
@@ -167,12 +181,13 @@ workspacesRoute.get('/:id/members', async (c) => {
       expectedShareBps: schema.workspaceMembers.expectedShareBps,
       trackingFrom: schema.workspaceMembers.trackingFrom,
       joinedAt: schema.workspaceMembers.joinedAt,
+      leftAt: schema.workspaceMembers.leftAt,
       name: schema.users.name,
       email: schema.users.email,
     })
     .from(schema.workspaceMembers)
     .innerJoin(schema.users, eq(schema.users.id, schema.workspaceMembers.userId))
-    .where(eq(schema.workspaceMembers.workspaceId, id));
+    .where(and(eq(schema.workspaceMembers.workspaceId, id), activeMember));
   return c.json({ ok: true, members: rows });
 });
 
@@ -188,18 +203,7 @@ workspacesRoute.patch('/:id/members/:memberId', async (c) => {
   const userId = c.get('userId');
   const id = c.req.param('id');
   const memberId = c.req.param('memberId');
-  const owner = await db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(
-      and(
-        eq(schema.workspaceMembers.workspaceId, id),
-        eq(schema.workspaceMembers.userId, userId),
-        eq(schema.workspaceMembers.role, 'owner'),
-      ),
-    )
-    .limit(1);
-  if (!owner[0]) return c.json({ ok: false, error: 'forbidden' }, 403);
+  if (!(await isActiveOwner(id, userId))) return c.json({ ok: false, error: 'forbidden' }, 403);
   const parsed = MemberUpdate.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ ok: false, error: parsed.error.flatten() }, 400);
   await db
@@ -214,7 +218,87 @@ workspacesRoute.patch('/:id/members/:memberId', async (c) => {
       and(
         eq(schema.workspaceMembers.workspaceId, id),
         eq(schema.workspaceMembers.userId, memberId),
+        activeMember,
       ),
     );
+  return c.json({ ok: true });
+});
+
+const uuid = z.string().uuid();
+
+// Soft-remove: the row stays so past usage keeps its billing attribution; only the
+// `left_at` marker flips, which every membership check treats as "not a member".
+async function softRemove(workspaceId: string, memberId: string): Promise<boolean> {
+  const removed = await db
+    .update(schema.workspaceMembers)
+    .set({ leftAt: new Date() })
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, workspaceId),
+        eq(schema.workspaceMembers.userId, memberId),
+        activeMember,
+      ),
+    )
+    .returning({ userId: schema.workspaceMembers.userId });
+  return removed.length > 0;
+}
+
+// Owner removes a member. Owners are not removable — that would orphan the workspace;
+// deleting or transferring it is a separate (future) operation.
+workspacesRoute.delete('/:id/members/:memberId', async (c) => {
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  const memberId = c.req.param('memberId');
+  if (!uuid.safeParse(id).success || !uuid.safeParse(memberId).success) {
+    return c.json({ ok: false, error: 'invalid id' }, 400);
+  }
+  if (!(await isActiveOwner(id, userId))) return c.json({ ok: false, error: 'forbidden' }, 403);
+
+  const [target] = await db
+    .select({ role: schema.workspaceMembers.role })
+    .from(schema.workspaceMembers)
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, id),
+        eq(schema.workspaceMembers.userId, memberId),
+        activeMember,
+      ),
+    )
+    .limit(1);
+  if (!target) return c.json({ ok: false, error: 'not a member' }, 404);
+  if (target.role === 'owner') {
+    return c.json(
+      { ok: false, error: 'owner cannot be removed; transfer or delete workspace' },
+      400,
+    );
+  }
+
+  await softRemove(id, memberId);
+  return c.json({ ok: true });
+});
+
+// Self-leave. Owners cannot leave (see above), which also covers personal workspaces.
+workspacesRoute.post('/:id/leave', async (c) => {
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  if (!uuid.safeParse(id).success) return c.json({ ok: false, error: 'invalid id' }, 400);
+
+  const [me] = await db
+    .select({ role: schema.workspaceMembers.role })
+    .from(schema.workspaceMembers)
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, id),
+        eq(schema.workspaceMembers.userId, userId),
+        activeMember,
+      ),
+    )
+    .limit(1);
+  if (!me) return c.json({ ok: false, error: 'not a member' }, 404);
+  if (me.role === 'owner') {
+    return c.json({ ok: false, error: 'owner cannot leave; transfer or delete workspace' }, 400);
+  }
+
+  await softRemove(id, userId);
   return c.json({ ok: true });
 });

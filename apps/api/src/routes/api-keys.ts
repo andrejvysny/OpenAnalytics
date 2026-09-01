@@ -4,10 +4,12 @@ import { z } from 'zod';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
+import { rateLimit } from '../middleware/rate-limit';
 import { generateApiKey, hashPassword } from '../services/crypto';
 
 export const apiKeysRoute = new Hono<{ Variables: SessionVars }>();
 
+apiKeysRoute.use('*', rateLimit({ windowMs: 60_000, max: 60 }));
 apiKeysRoute.use('*', sessionAuth);
 
 apiKeysRoute.get('/', async (c) => {

@@ -37,5 +37,11 @@ jobs:
       - run: pnpm --filter @oa/db migrate
         env:
           DATABASE_URL: postgres://oa:oa@localhost:5432/oa
+      # API tests need a real Postgres. The harness (apps/api/src/test/setup.ts, loaded
+      # via bunfig preload) creates `oa_test` on the same server, migrates it, and
+      # repoints DATABASE_URL at it — the `oa` database above is never touched.
+      - run: pnpm --filter @oa/api test
+        env:
+          DATABASE_URL: postgres://oa:oa@localhost:5432/oa
       # NOTE: `next lint` (web) is not configured (no ESLint flat config). Add an
       # eslint.config.mjs + eslint-config-next, then re-enable `pnpm -r lint` here.

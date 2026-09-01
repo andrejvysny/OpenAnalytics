@@ -15,6 +15,20 @@
       "when": 1780513133620,
       "tag": "0001_password_resets",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785669897607,
+      "tag": "0002_light_galactus",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785670593298,
+      "tag": "0003_warm_iron_patriot",
+      "breakpoints": true
     }
   ]
 }

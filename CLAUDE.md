@@ -14,7 +14,7 @@ pnpm monorepo (`pnpm@10.33.2`, Node 22, Bun 1.3.6). Workspaces: `apps/*`, `packa
 - `apps/cli` — `oa` CLI. TS run/compiled by **Bun**, shipped as single binaries (`bun build --compile`).
 - `apps/api` — **Hono** server on Bun + **Drizzle** ORM. Entry `src/index.ts`.
 - `apps/web` — **Next.js 15** App Router, server-rendered, custom SVG charts.
-- `packages/parser` (`@oa/parser`) — JSONL → `Session` aggregator + path hashing. Vitest, snapshot-tested.
+- `packages/parser` (`@oa/parser`) — JSONL → `Session` aggregator + path hashing. Vitest, unit-tested.
 - `packages/schema` (`@oa/schema`) — **Zod contracts**, the single source of truth shared by CLI and API.
 - `packages/db` (`@oa/db`) — Drizzle schema + SQL migrations.
 
@@ -29,6 +29,7 @@ pnpm install --frozen-lockfile=false
 # CI parity (run before pushing)
 pnpm -r typecheck
 pnpm --filter @oa/parser test
+pnpm --filter @oa/api test     # needs Postgres on DATABASE_URL; see note below
 
 # Focused parser test
 pnpm --filter @oa/parser exec vitest run src/adapters/claude-code/diff.test.ts
@@ -48,12 +49,12 @@ pnpm --filter @oa/db push       # DEV ONLY: push schema directly (never used in 
 pnpm --filter @oa/cli compile:darwin-arm64   # …darwin-x64, linux-x64, linux-arm64, windows-x64
 ```
 
-`apps/api` has no test runner; `@oa/parser` is the only package with a `test` script (so `pnpm -r test` only runs parser).
+`apps/api` runs **bun:test** against a real Postgres. `apps/api/bunfig.toml` preloads `src/test/setup.ts`, which creates `<dbname>_test` on the server named by `DATABASE_URL`, applies the journaled migrations to it, and repoints `DATABASE_URL` at it **before** any test module loads (`src/env.ts` snapshots env at import). The dev/prod database is never touched — the harness refuses any target not ending in `_test`, and `truncateAll()` re-checks `current_database()` before wiping. Pure tests (`pricing`, `billing`) need no DB. `@oa/cli` has Bun tests but no `test` script (run `bun test` directly); `@oa/schema` declares one but has no tests, so prefer the per-package commands over `pnpm -r test`.
 
 ## Dev vs Prod (two different compose files)
 
 - **Dev: `docker-compose.yml`** — `docker compose up` → Postgres + API (`bun --watch` on `:3001`) + web (`next dev` on `:3000`) + MailDev (`:1080`). Source is bind-mounted; both hot-reload. Bootstrap a user + API key once: `docker compose exec api bun apps/api/scripts/dev-bootstrap.ts`.
-- **Prod: `compose.yml`** — `docker compose -f compose.yml up -d` pulls GHCR images, fronts API/web with **Caddy** (auto-TLS). `docker/api-entrypoint.sh` waits for Postgres, runs `drizzle-kit migrate` (journaled, non-destructive — **never** `push --force`), then seeds model prices. Skip those with `OA_SKIP_MIGRATIONS=1` / `OA_SKIP_SEED=1`. Migrations live in `packages/db/migrations` (squashed `0000_baseline`); add new ones with `pnpm --filter @oa/db generate`.
+- **Prod: `compose.yml`** — `docker compose -f compose.yml up -d` pulls GHCR images, fronts API/web with **Caddy** (auto-TLS). `docker/api-entrypoint.sh` waits for Postgres, runs `drizzle-kit migrate` (journaled, non-destructive — **never** `push --force`), then seeds model prices. Skip those with `OA_SKIP_MIGRATIONS=1` / `OA_SKIP_SEED=1`. Journaled migrations live in `packages/db/migrations`; add new ones with `pnpm --filter @oa/db generate`.
 
 ## Data flow (end to end)
 
@@ -84,7 +85,7 @@ Next.js dashboard (server components) ── session-cookie auth ──► api r
 - **Default privacy.** Project basename is sent by default (`sendProjectName: true`); opt out with `oa login --no-send-project-name`. Raw hostname is opt-in (`--send-hostname`); otherwise the anonymous `machineId` is reported.
 - **Prices must be seeded before ingest.** Missing `model_prices` rows ⇒ cost silently computes to 0 (warns once). After adding/changing a model's price, run `apps/api/scripts/recompute-costs.ts` to backfill existing rows. Model names are normalized leniently (version suffixes, `anthropic/` prefix, `[1m]`, `<synthetic>` → Opus).
 - **Cursor durability.** Sync advances `cursors.json` only after every batch is fully accepted; partial acceptance throws so the next run retries from the same offset.
-- **CLI state** lives in `$XDG_CONFIG_HOME/openanalytics` or `~/.config/openanalytics` (`config.json`, `cursors.json`, `sync.lock`); transcripts read from `~/.claude/projects`. `queue.jsonl` is currently vestigial.
+- **CLI state** lives in `$XDG_CONFIG_HOME/openanalytics` or `~/.config/openanalytics` (`config.json`, `cursors.json`, `sync.lock`); transcripts read from `~/.claude/projects`.
 
 ## Web ↔ API wiring
 

@@ -2,6 +2,7 @@ import consola from 'consola';
 import { loadConfig, saveConfig } from '../core/config';
 import { loadCursors, saveCursors, markSynced } from '../core/cursors';
 import { discoverTranscripts, parseFile } from '../core/scan';
+import { sessionIssue } from '../core/validate';
 import { fetchWorkspaceSalt, postSync, type SyncResult } from '../core/sync-client';
 import { withSyncLock } from '../core/lock';
 import { parserPrivacyOptions } from '../core/privacy';
@@ -55,6 +56,7 @@ async function runImportUnlocked(opts: ImportCommandOpts): Promise<void> {
   const batch: PendingSession[] = [];
   let okCount = 0;
   let quarantined = 0;
+  let invalid = 0;
   let transportFailed = false;
 
   const flush = async () => {
@@ -93,6 +95,15 @@ async function runImportUnlocked(opts: ImportCommandOpts): Promise<void> {
   for (const f of files) {
     const s = parseFile(f, privacy);
     if (!s) continue;
+    // Schema-invalid sessions would 400 the whole batch server-side. Skip them and
+    // advance the cursor so the same broken file isn't retried on every run.
+    const issue = sessionIssue(s);
+    if (issue) {
+      consola.warn(`skipping invalid session ${f.path}: ${issue}`);
+      markSynced(cursors, f.path, f);
+      invalid++;
+      continue;
+    }
     batch.push({ session: s, path: f.path, size: f.size, mtimeMs: f.mtimeMs });
     if (batch.length >= BATCH) await flush();
     if (transportFailed) break;
@@ -105,5 +116,5 @@ async function runImportUnlocked(opts: ImportCommandOpts): Promise<void> {
     consola.warn('import incomplete (transport error); re-run to resume');
     throw new Error('import failed');
   }
-  consola.info(`done. accepted=${okCount} quarantined=${quarantined}`);
+  consola.info(`done. accepted=${okCount} quarantined=${quarantined} invalid=${invalid}`);
 }

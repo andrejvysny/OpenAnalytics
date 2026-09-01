@@ -57,6 +57,21 @@ async function createInviteAction(formData: FormData) {
   redirect('/settings/workspaces');
 }
 
+async function leaveWorkspaceAction(formData: FormData) {
+  'use server';
+  const workspaceId = String(formData.get('workspaceId') ?? '');
+  const r = await apiPost<{ ok: boolean }>(`/api/workspaces/${workspaceId}/leave`, {});
+  if (r.ok) redirect('/settings/workspaces?left=1');
+  // The API replies with a JSON body; surface just its message.
+  let reason = r.error ?? 'request failed';
+  try {
+    reason = (JSON.parse(reason) as { error?: string }).error ?? reason;
+  } catch {
+    /* non-JSON body — show it raw */
+  }
+  redirect(`/settings/workspaces?leave_error=${encodeURIComponent(reason)}`);
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -66,11 +81,14 @@ export default async function Page({
     email_error?: string;
     smtp_ok?: string;
     smtp_error?: string;
+    left?: string;
+    leave_error?: string;
   }>;
 }) {
   const me = await readMe();
   if (!me) redirect('/login');
-  const { invited, email_sent, email_error, smtp_ok, smtp_error } = await searchParams;
+  const { invited, email_sent, email_error, smtp_ok, smtp_error, left, leave_error } =
+    await searchParams;
   const wsResp = await api<{ ok: boolean; workspaces: Workspace[] }>('/api/workspaces');
   const workspaces = wsResp?.workspaces ?? [];
   const sharedWorkspaces = workspaces.filter((w) => !w.isPersonal);
@@ -85,6 +103,23 @@ export default async function Page({
           </div>
         </div>
       </div>
+
+      {left && (
+        <div className="notice">
+          <p className="muted" style={{ margin: 0 }}>
+            You left the workspace. Its shared plan no longer covers your usage — you can accept a
+            new invite whenever you like.
+          </p>
+        </div>
+      )}
+
+      {leave_error && (
+        <div className="notice">
+          <p className="error" style={{ margin: 0 }}>
+            Could not leave: {leave_error}
+          </p>
+        </div>
+      )}
 
       {invited && (
         <div className="notice">
@@ -140,7 +175,17 @@ export default async function Page({
                   {w.isPersonal ? (
                     <span className="pill muted">personal</span>
                   ) : (
-                    <Link href={`/plan/${w.id}`}>view plan →</Link>
+                    <div className="inline-form">
+                      <Link href={`/plan/${w.id}`}>view plan →</Link>
+                      {w.role !== 'owner' && (
+                        <form action={leaveWorkspaceAction}>
+                          <input type="hidden" name="workspaceId" value={w.id} />
+                          <button className="ghost" type="submit">
+                            Leave
+                          </button>
+                        </form>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>

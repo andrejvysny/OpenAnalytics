@@ -7,6 +7,26 @@ const API =
 
 export const apiUrl = API;
 
+// Resolve the public-facing API origin a *browser* should hit (form posts, download
+// links). Always derived from the incoming request so any self-hosted domain works
+// without baking it into the image or env. Behind a reverse proxy (Caddy / Traefik /
+// nginx / Cloudflare), x-forwarded-host + x-forwarded-proto give the public origin.
+// In local dev without a proxy the api lives on a different port than the dashboard;
+// PUBLIC_API_URL is then a dev-only escape hatch. NEXT_PUBLIC_API_URL is intentionally
+// NOT read — Next inlines it at build time, re-hardcoding the CI default into images.
+export async function publicApiUrl(): Promise<string> {
+  const h = await headers();
+  const xfHost = h.get('x-forwarded-host');
+  if (xfHost) {
+    const proto = h.get('x-forwarded-proto') ?? 'https';
+    return `${proto}://${xfHost}`;
+  }
+  if (process.env.PUBLIC_API_URL) return process.env.PUBLIC_API_URL;
+  const host = h.get('host');
+  if (host) return `http://${host}`;
+  return 'http://localhost:3001';
+}
+
 // Server-side fetch that forwards the user's session cookie.
 export async function api<T>(path: string, init?: RequestInit): Promise<T | null> {
   const c = await cookies();
@@ -95,6 +115,41 @@ export async function apiPatch<T>(
   });
   if (!res.ok) return { ok: false, error: await res.text().catch(() => '') };
   return { ok: true, data: (await res.json()) as T };
+}
+
+// DELETE with a JSON body. Surfaces the status and the API's `error` field so callers
+// can tell "wrong password" (401) from "workspace still has members" (409).
+export async function apiDelete<T>(
+  path: string,
+  body?: unknown,
+): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
+  const c = await cookies();
+  const cookieHeader = c
+    .getAll()
+    .map((x) => `${x.name}=${x.value}`)
+    .join('; ');
+  const res = await fetch(`${API}${path}`, {
+    method: 'DELETE',
+    headers: {
+      'content-type': 'application/json',
+      ...(cookieHeader ? { cookie: cookieHeader } : {}),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    cache: 'no-store',
+  });
+  const text = await res.text().catch(() => '');
+  if (!res.ok) return { ok: false, status: res.status, error: errorText(text) || res.statusText };
+  return { ok: true, status: res.status, data: (text ? JSON.parse(text) : null) as T };
+}
+
+function errorText(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as { error?: unknown };
+    if (typeof parsed.error === 'string') return parsed.error;
+  } catch {
+    /* not JSON — fall through to the raw body */
+  }
+  return raw;
 }
 
 export async function readMe(): Promise<{ id: string; email: string; name: string } | null> {

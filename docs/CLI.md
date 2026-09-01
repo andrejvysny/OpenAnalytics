@@ -1,6 +1,6 @@
 # OpenAnalytics CLI — user guide
 
-The `oa` CLI watches `~/.claude/projects/` on your machine and ships **metadata only** (no prompts, no file contents, no raw paths, no raw project names by default) to your OpenAnalytics server. Run it on every machine where you use Claude Code; sessions from all machines merge into one dashboard view.
+The `oa` CLI watches `~/.claude/projects/` on your machine and ships **metadata only** (no prompts, no file contents, no raw paths — the project folder name is sent by default, opt out with `--no-send-project-name`) to your OpenAnalytics server. Run it on every machine where you use Claude Code; sessions from all machines merge into one dashboard view.
 
 ---
 
@@ -45,7 +45,7 @@ oa login \
   --api-key oa_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-Optional privacy opt-ins: add `--send-hostname` to send your raw hostname, or `--send-project-name` to send raw project basenames. Both are off by default.
+Project basename is sent by default — opt out with `--no-send-project-name`. Raw hostname is opt-in: add `--send-hostname` to enable it.
 
 This writes `~/.config/openanalytics/config.json` (mode 600) with your API URL, key, random machine id, and workspace salt used for local path hashing.
 
@@ -124,17 +124,17 @@ Create a separate API key per machine in the dashboard (`oa login` with that key
 
 ## 7. Common operations
 
-| Command                     | What it does                                                          |
-| --------------------------- | --------------------------------------------------------------------- |
-| `oa status`                 | Show config + pending-sync count                                      |
-| `oa sync`                   | Sync sessions changed since cursor checkpoint once and exit           |
-| `oa sync --dry-run`         | Print sanitized payload without sending or advancing cursors          |
-| `oa import`                 | Backfill — re-syncs every transcript (idempotent)                     |
-| `oa import --dry-run`       | Print backfill payload without sending or advancing cursors           |
-| `oa daemon`                 | Long-running watcher                                                  |
-| `oa service install`        | Register daemon with launchd/systemd                                  |
-| `oa service status`         | Show daemon service status                                            |
-| `oa service uninstall`      | Stop and remove daemon service                                        |
+| Command                | What it does                                                 |
+| ---------------------- | ------------------------------------------------------------ |
+| `oa status`            | Show config + pending-sync count                             |
+| `oa sync`              | Sync sessions changed since cursor checkpoint once and exit  |
+| `oa sync --dry-run`    | Print sanitized payload without sending or advancing cursors |
+| `oa import`            | Backfill — re-syncs every transcript (idempotent)            |
+| `oa import --dry-run`  | Print backfill payload without sending or advancing cursors  |
+| `oa daemon`            | Long-running watcher                                         |
+| `oa service install`   | Register daemon with launchd/systemd                         |
+| `oa service status`    | Show daemon service status                                   |
+| `oa service uninstall` | Stop and remove daemon service                               |
 
 Config lives at `~/.config/openanalytics/config.json`. Sync cursors (last processed file size per absolute path) live at `~/.config/openanalytics/cursors.json`.
 
@@ -159,19 +159,19 @@ What gets shipped per session:
 - Prompts: count + **character length only** (never the text)
 - Per-request token deltas + the model used
 
-What never leaves your machine by default: prompt text, file contents, bash commands, file paths, working directory names, project basenames, raw hostname.
+What never leaves your machine: prompt text, file contents, bash commands, full file/working-directory paths (only `path_hash` is sent). What's sent by default (opt out with the flags above): project basename. What's opt-in: raw hostname.
 
 ---
 
 ## 9. Troubleshooting
 
-| Symptom                                   | Fix                                                                                                                                         |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `not logged in`                           | Run `oa login` again with `--api-key`                                                                                                       |
-| Dashboard shows nothing after `oa import` | Check `oa status` for pending count. Run `OA_LOG=debug oa sync` to see HTTP responses.                                                      |
-| `connection refused`                      | API URL wrong, or your firewall blocks 443. `curl -I https://<api-url>/health` should return 200.                                           |
-| Sessions appear under a hash-like project | Raw project names are not sent by default; rename in the dashboard or opt into project-name sending locally.                               |
-| Want to start over                        | Delete `~/.config/openanalytics/cursors.json`, then `oa import`.                                                                            |
+| Symptom                                   | Fix                                                                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `not logged in`                           | Run `oa login` again with `--api-key`                                                                                                            |
+| Dashboard shows nothing after `oa import` | Check `oa status` for pending count. Run `OA_LOG=debug oa sync` to see HTTP responses.                                                           |
+| `connection refused`                      | API URL wrong, or your firewall blocks 443. `curl -I https://<api-url>/health` should return 200.                                                |
+| Sessions appear under a hash-like project | Project-name sending was opted out (`--no-send-project-name`); rename in the dashboard, or re-run `oa login --send-project-name` to opt back in. |
+| Want to start over                        | Delete `~/.config/openanalytics/cursors.json`, then `oa import`.                                                                                 |
 
 ---
 

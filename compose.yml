@@ -25,6 +25,8 @@ services:
       timeout: 5s
       retries: 12
     networks: [oa]
+    mem_limit: 1g
+    cpus: 1.0
 
   api:
     image: ghcr.io/andrejvysny/openanalytics-api:${OA_IMAGE_TAG:-latest}
@@ -48,6 +50,8 @@ services:
       postgres:
         condition: service_healthy
     networks: [oa]
+    mem_limit: 768m
+    cpus: 1.0
 
   web:
     image: ghcr.io/andrejvysny/openanalytics-web:${OA_IMAGE_TAG:-latest}
@@ -62,6 +66,8 @@ services:
       api:
         condition: service_healthy
     networks: [oa]
+    mem_limit: 768m
+    cpus: 1.0
 
   caddy:
     image: caddy:2-alpine
@@ -81,6 +87,30 @@ services:
       - api
       - web
     networks: [oa]
+    mem_limit: 256m
+    cpus: 0.5
+
+  # Daily pg_dump sidecar. Dumps land gzipped in the oa-backups volume and are
+  # pruned after BACKUP_RETENTION_DAYS. See DEPLOYMENT.md#backups to disable/restore.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-oa}
+      POSTGRES_USER: ${POSTGRES_USER:-oa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      PGHOST: postgres
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./docker/backup.sh:/backup.sh:ro
+      - oa-backups:/backups
+    entrypoint: ['sh', '/backup.sh']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [oa]
+    mem_limit: 256m
+    cpus: 0.5
 
 networks:
   oa:
@@ -90,3 +120,4 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  oa-backups:

@@ -27,7 +27,7 @@
 
 - Never add prompt text, file contents, bash commands, or raw paths to sync payloads; parser/API are built around metadata-only ingest.
 - Code currently sends project basename by default (`sendProjectName: true`); users opt out with `oa login --no-send-project-name`. Raw hostname remains opt-in with `--send-hostname`.
-- CLI state lives in `$XDG_CONFIG_HOME/openanalytics` or `~/.config/openanalytics` (`config.json`, `cursors.json`, `queue.jsonl`); transcripts are read from `~/.claude/projects`.
+- CLI state lives in `$XDG_CONFIG_HOME/openanalytics` or `~/.config/openanalytics` (`config.json`, `cursors.json`); transcripts are read from `~/.claude/projects`.
 - `.env.production` is ignored and may contain real secrets; do not commit or quote it.
 
 ## Style/config

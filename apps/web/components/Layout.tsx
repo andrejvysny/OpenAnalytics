@@ -80,6 +80,9 @@ export function DashLayout({
           <Link href="/settings/api-keys" className="nav-link">
             API keys
           </Link>
+          <Link href="/settings/account" className="nav-link">
+            Account
+          </Link>
         </nav>
 
         <div className="user-block">

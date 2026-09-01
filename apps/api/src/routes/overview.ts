@@ -87,8 +87,11 @@ overviewRoute.get('/', async (c) => {
       prompts: sql<number>`COALESCE(SUM(${schema.sessions.promptCount}),0)`,
     })
     .from(schema.projects)
-    .leftJoin(schema.sessions, eq(schema.sessions.projectId, schema.projects.id))
-    .where(eq(schema.projects.workspaceId, wsId))
+    .leftJoin(
+      schema.sessions,
+      and(eq(schema.sessions.projectId, schema.projects.id), eq(schema.sessions.userId, userId)),
+    )
+    .where(and(eq(schema.projects.workspaceId, wsId), eq(schema.projects.ownerUserId, userId)))
     .groupBy(schema.projects.id, schema.projects.name)
     .orderBy(desc(sql`COALESCE(SUM(${schema.sessions.costUsd}),0)`))
     .limit(20);

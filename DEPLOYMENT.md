@@ -71,17 +71,18 @@ Set `TRUST_PROXY=true` in the API env so it honors `X-Forwarded-For` for rate li
 
 ## Required env vars
 
-| Variable              | Where | Required | Default                 | Notes                                       |
-| --------------------- | ----- | -------- | ----------------------- | ------------------------------------------- |
-| `DATABASE_URL`        | api   | ✓        | —                       | `postgres://user:pass@host:5432/db`         |
-| `SESSION_SECRET`      | api   | ✓        | —                       | 32+ chars; rotate invalidates cookies       |
-| `PUBLIC_WEB_URL`      | api   | ✓        | `http://localhost:3000` | Used for invite links + CORS                |
-| `PUBLIC_API_URL`      | api   | ✓        | `http://localhost:3001` | Used for CLI bootstrap snippet              |
-| `NEXT_PUBLIC_API_URL` | web   | ✓        | `http://localhost:3001` | Baked at build time **and** read at runtime |
-| `NODE_ENV`            | both  | —        | `production`            |                                             |
-| `TRUST_PROXY`         | api   | —        | `false`                 | Set `true` when behind reverse proxy        |
-| `OA_SKIP_MIGRATIONS`  | api   | —        | `0`                     | Set `1` to manage schema externally         |
-| `OA_SKIP_SEED`        | api   | —        | `0`                     | Set `1` to seed model_prices manually       |
+| Variable                | Where  | Required | Default                 | Notes                                                       |
+| ----------------------- | ------ | -------- | ----------------------- | ----------------------------------------------------------- |
+| `DATABASE_URL`          | api    | ✓        | —                       | `postgres://user:pass@host:5432/db`                         |
+| `SESSION_SECRET`        | api    | ✓        | —                       | 32+ chars; rotate invalidates cookies                       |
+| `PUBLIC_WEB_URL`        | api    | ✓        | `http://localhost:3000` | Used for invite links + CORS                                |
+| `PUBLIC_API_URL`        | api    | ✓        | `http://localhost:3001` | Used for CLI bootstrap snippet                              |
+| `NEXT_PUBLIC_API_URL`   | web    | ✓        | `http://localhost:3001` | Baked at build time **and** read at runtime                 |
+| `NODE_ENV`              | both   | —        | `production`            |                                                             |
+| `TRUST_PROXY`           | api    | —        | `false`                 | Set `true` when behind reverse proxy                        |
+| `OA_SKIP_MIGRATIONS`    | api    | —        | `0`                     | Set `1` to manage schema externally                         |
+| `OA_SKIP_SEED`          | api    | —        | `0`                     | Set `1` to seed model_prices manually                       |
+| `BACKUP_RETENTION_DAYS` | backup | —        | `14`                    | Days to keep daily Postgres dumps (see [Backups](#backups)) |
 
 ## Multi-machine usage
 
@@ -96,11 +97,52 @@ docker compose -f compose.yml up -d
 
 The api entrypoint runs `drizzle-kit migrate` on every boot; only pending journaled migrations are applied (tracked in `__drizzle_migrations`), so upgrades are safe and additive.
 
+### Pinning images
+
+`OA_IMAGE_TAG` (in `.env`) controls which tag `compose.yml` pulls for `api`/`web`. `latest` follows `master` — fine for testing, not for reproducible prod deploys. For anything you care about staying stable, pin to an immutable build:
+
+```bash
+OA_IMAGE_TAG=sha-<short-commit-sha>
+```
+
+Find the sha tags for a given build on the GHCR package pages (`ghcr.io/andrejvysny/openanalytics-api`, `-web`). Tagged releases (e.g. `v0.1.0`) also work and are the more human-readable option. After changing `OA_IMAGE_TAG`, re-run the update commands above.
+
 ## Backups
+
+`compose.yml` runs a `backup` sidecar (`postgres:16-alpine` + `docker/backup.sh`) alongside the bundled `postgres` service. It loops forever: dump, gzip, prune, sleep 24h — no host cron needed.
+
+- **Where dumps land**: the named volume `oa-backups`, mounted at `/backups` in the `backup` container, as `oa-<YYYY-MM-DD>.sql.gz` (one per day; same-day reruns overwrite that day's file).
+- **Retention**: `BACKUP_RETENTION_DAYS` in `.env` (default `14`). Dumps older than this are deleted on each loop iteration.
+- **Requires** the bundled `postgres` service — if you brought your own managed Postgres (see the comment at the top of `compose.yml`), remove or repurpose `backup` too and back up via your DB provider instead.
+
+### Restore
+
+1. Stop the app so nothing writes during restore (leave `postgres` running):
+   ```bash
+   docker compose -f compose.yml stop api web caddy backup
+   ```
+2. Copy the dump out of the volume (or `docker cp` from the `backup` container) and restore into a **fresh** database — `sessions`/`requests`/ingest are keyed such that restoring over a live DB can conflict:
+   ```bash
+   docker compose -f compose.yml exec -T postgres dropdb -U oa oa --if-exists
+   docker compose -f compose.yml exec -T postgres createdb -U oa oa
+   gunzip -c oa-2026-08-01.sql.gz | docker compose -f compose.yml exec -T postgres psql -U oa oa
+   ```
+3. Bring everything back up:
+   ```bash
+   docker compose -f compose.yml up -d
+   ```
+
+### One-off dump
+
+Bypass the sidecar's schedule and dump immediately:
 
 ```bash
 docker compose -f compose.yml exec postgres pg_dump -U oa oa | gzip > oa-$(date -I).sql.gz
 ```
+
+### Disabling
+
+Comment out (or `docker compose -f compose.yml rm -sf backup`) the `backup` service in `compose.yml` if you back up Postgres another way (e.g. volume-level snapshots, a managed DB's own backups). The `oa-backups` volume is only written to by this sidecar and can be removed once unused.
 
 ## Releases & versioning
 

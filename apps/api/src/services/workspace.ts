@@ -1,9 +1,12 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@oa/db';
 import type { Db } from '../db';
 
 const uuidSchema = z.string().uuid();
+
+// Membership is ACTIVE iff left_at IS NULL — a soft-removed row must never grant access.
+export const activeMember = isNull(schema.workspaceMembers.leftAt);
 
 // Typed error so read routes can map to the right HTTP status without leaking internals.
 export class WorkspaceAccessError extends Error {
@@ -37,6 +40,7 @@ export async function resolveReadWorkspace(
       and(
         eq(schema.workspaceMembers.workspaceId, workspaceId),
         eq(schema.workspaceMembers.userId, userId),
+        activeMember,
       ),
     )
     .limit(1);
@@ -45,7 +49,7 @@ export async function resolveReadWorkspace(
 }
 
 // Resolve target workspace for a sync payload:
-// - If workspace_id provided, verify user is a member.
+// - If workspace_id provided, it must be a valid UUID the user is a member of.
 // - Otherwise, return the user's personal workspace, creating it if it doesn't exist yet.
 export async function resolveWorkspace(
   db: Db,
@@ -53,6 +57,9 @@ export async function resolveWorkspace(
   workspaceId: string | null,
 ): Promise<string> {
   if (workspaceId) {
+    if (!uuidSchema.safeParse(workspaceId).success) {
+      throw new WorkspaceAccessError(400, 'invalid workspace_id');
+    }
     const member = await db
       .select({ id: schema.workspaceMembers.workspaceId })
       .from(schema.workspaceMembers)
@@ -60,11 +67,12 @@ export async function resolveWorkspace(
         and(
           eq(schema.workspaceMembers.workspaceId, workspaceId),
           eq(schema.workspaceMembers.userId, userId),
+          activeMember,
         ),
       )
       .limit(1);
     if (member.length === 0) {
-      throw new Error('user is not a member of the requested workspace');
+      throw new WorkspaceAccessError(403, 'user is not a member of the requested workspace');
     }
     return workspaceId;
   }
@@ -81,7 +89,13 @@ export async function assertSingleSharedWorkspace(db: Db, userId: string): Promi
     })
     .from(schema.workspaceMembers)
     .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
-    .where(and(eq(schema.workspaceMembers.userId, userId), eq(schema.workspaces.isPersonal, 0)))
+    .where(
+      and(
+        eq(schema.workspaceMembers.userId, userId),
+        eq(schema.workspaces.isPersonal, 0),
+        activeMember,
+      ),
+    )
     .limit(1);
   if (row[0]) {
     throw new Error(`already a member of shared workspace "${row[0].name}"`);
@@ -97,6 +111,7 @@ export async function getOrCreatePersonalWorkspace(db: Db, userId: string): Prom
       and(
         eq(schema.workspaces.id, schema.workspaceMembers.workspaceId),
         eq(schema.workspaceMembers.userId, userId),
+        activeMember,
       ),
     )
     .where(eq(schema.workspaces.isPersonal, 1))

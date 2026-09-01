@@ -90,8 +90,10 @@ export const requests = pgTable(
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
     promptIdx: integer('prompt_idx').notNull(),
-    // Precise request timestamp. ts_bucket is the hour-floored value used for
-    // bucketed range filters/grouping (see services/ingest.ts).
+    // Hour-floored (privacy-coarse), same as ts_bucket — ingest deliberately
+    // discards sub-hour precision (see bucketRequestTimestamp in
+    // services/ingest.ts). Kept as its own column in case finer precision is
+    // captured later; ts_bucket remains the bucketed range filter/grouping key.
     ts: timestamp('ts', { withTimezone: true }).notNull(),
     tsBucket: timestamp('ts_bucket', { withTimezone: true }).notNull(),
     model: varchar('model', { length: 128 }).notNull(),

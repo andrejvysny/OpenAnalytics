@@ -34,6 +34,7 @@ interface Member {
   email: string;
   avatarUrl: string | null;
   trackingFrom: string;
+  leftAt: string | null;
   expectedSharePercent: number;
   usagePercent: number;
   tokenPercent: number;
@@ -173,6 +174,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                 <span style={{ fontWeight: 600 }}>{m.name}</span>
                 {m.isYou && <span className="muted">(you)</span>}
                 <span className={`pill ${m.role === 'owner' ? '' : 'muted'}`}>{m.role}</span>
+                {/* Left mid-cycle: their pre-departure usage still counts this period. */}
+                {m.leftAt && <span className="pill muted">left</span>}
               </div>
               <div className="flex">
                 <span

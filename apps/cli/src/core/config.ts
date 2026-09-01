@@ -38,7 +38,6 @@ export function projectsDir(): string {
 
 const CONFIG_FILE = 'config.json';
 const CURSORS_FILE = 'cursors.json';
-const QUEUE_FILE = 'queue.jsonl';
 
 function configPath(): string {
   return join(configDir(), CONFIG_FILE);
@@ -89,8 +88,4 @@ export function saveConfig(cfg: CliConfig): void {
 
 export function cursorsPath(): string {
   return join(configDir(), CURSORS_FILE);
-}
-
-export function queuePath(): string {
-  return join(configDir(), QUEUE_FILE);
 }

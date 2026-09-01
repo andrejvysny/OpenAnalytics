@@ -2,7 +2,7 @@
 
 Open-source, self-hostable analytics for AI coding agents — a free alternative to vibenalytics.dev.
 
-- **Local daemon** (`oa`) reads Claude Code session transcripts from `~/.claude/projects/` and syncs metadata only (no prompt text, no file contents, no raw paths, no raw project names by default).
+- **Local daemon** (`oa`) reads Claude Code session transcripts from `~/.claude/projects/` and syncs metadata only (no prompt text, no file contents, no raw paths — full paths never leave the machine, but the project folder **name** is sent by default; opt out with `--no-send-project-name`).
 - **Cloud API + dashboard** stores usage per user across multiple machines and shows per-project, per-day, per-tool, per-language breakdowns.
 - **Shared plans** let teams pool a Claude subscription and see a **per-member percentage split** of cost and usage across the billing cycle.
 - **AGPL-3.0**, single-machine signup, docker-compose, no telemetry, no email required in v1.
@@ -97,7 +97,7 @@ Per Claude Code session (one row in `sessions` table):
 - Prompts: count + character length only (**never the text**)
 - Per-request token deltas
 
-No prompts, no file paths, no bash commands, no file contents, and no raw project names leave your machine by default.
+No prompts, no file paths, no bash commands, and no file contents leave your machine. The project folder **name** (not the full path) is sent by default — opt out with `--no-send-project-name`.
 
 ## Multi-machine
 

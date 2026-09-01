@@ -37,15 +37,20 @@ export const passwordResets = pgTable(
   (t) => [index('password_resets_user_idx').on(t.userId)],
 );
 
-export const apiKeys = pgTable('api_keys', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  prefix: varchar('prefix', { length: 16 }).notNull(),
-  secretHash: text('secret_hash').notNull(),
-  name: varchar('name', { length: 255 }),
-  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    prefix: varchar('prefix', { length: 16 }).notNull(),
+    secretHash: text('secret_hash').notNull(),
+    name: varchar('name', { length: 255 }),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  // prefix is scanned on every /api/sync auth; user_id backs the key-management list.
+  (t) => [index('api_keys_prefix_idx').on(t.prefix), index('api_keys_user_idx').on(t.userId)],
+);

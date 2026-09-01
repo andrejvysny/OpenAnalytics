@@ -2,6 +2,7 @@ import consola from 'consola';
 import { loadConfig, saveConfig } from '../core/config';
 import { loadCursors, saveCursors, isPending, markSynced } from '../core/cursors';
 import { discoverTranscripts, parseFile } from '../core/scan';
+import { sessionIssue } from '../core/validate';
 import { fetchWorkspaceSalt, postSync, type SyncResult } from '../core/sync-client';
 import { withSyncLock } from '../core/lock';
 import { parserPrivacyOptions } from '../core/privacy';
@@ -51,6 +52,7 @@ async function runSyncUnlocked(opts: SyncCommandOpts): Promise<void> {
   const batch: PendingSession[] = [];
   let ok = 0;
   let quarantined = 0;
+  let invalid = 0;
   let transportFailed = false;
 
   const flush = async () => {
@@ -97,6 +99,15 @@ async function runSyncUnlocked(opts: SyncCommandOpts): Promise<void> {
   for (const f of changed) {
     const s = parseFile(f, privacy);
     if (!s) continue;
+    // Schema-invalid sessions would 400 the whole batch server-side. Skip them and
+    // advance the cursor so the same broken file isn't retried on every run.
+    const issue = sessionIssue(s);
+    if (issue) {
+      consola.warn(`skipping invalid session ${f.path}: ${issue}`);
+      markSynced(cursors, f.path, f);
+      invalid++;
+      continue;
+    }
     batch.push({ session: s, path: f.path, size: f.size, mtimeMs: f.mtimeMs });
     if (batch.length >= BATCH) await flush();
     if (transportFailed) break;
@@ -108,5 +119,5 @@ async function runSyncUnlocked(opts: SyncCommandOpts): Promise<void> {
     consola.warn('sync incomplete (transport error); will resume next run');
     throw new Error('sync failed');
   }
-  consola.info(`sync complete. accepted=${ok} quarantined=${quarantined}`);
+  consola.info(`sync complete. accepted=${ok} quarantined=${quarantined} invalid=${invalid}`);
 }

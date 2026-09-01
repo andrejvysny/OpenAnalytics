@@ -13,6 +13,7 @@ export async function forwardSessionCookie(setCookieHeader: string | null) {
   c.set('oa_session', m[1]!, {
     httpOnly: true,
     sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: exp ? Number(exp[1]) : 60 * 60 * 24 * 30,
   });

@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, isNull, lt, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
-import { getOrCreatePersonalWorkspace } from '../services/workspace';
+import { activeMember, getOrCreatePersonalWorkspace } from '../services/workspace';
 import { planNameFor, type PlanKind } from '../services/plans';
 import { currentPeriod } from '../services/billing';
 
@@ -98,6 +99,31 @@ function effectiveExpectedShares<T extends { expectedShareBps: number | null }>(
   return members.map(() => equal);
 }
 
+// Requests that count toward a member's share of the plan: inside the billing period,
+// after their tracking start, and before they left. Both usage queries must agree.
+function memberUsageWindow(from: Date, to: Date): SQL[] {
+  const fromTs = sql`${from.toISOString()}::timestamptz`;
+  const toTs = sql`${to.toISOString()}::timestamptz`;
+  return [
+    gte(schema.requests.tsBucket, from),
+    lt(schema.requests.tsBucket, to),
+    gte(
+      schema.requests.tsBucket,
+      sql`GREATEST(${fromTs}, (${schema.workspaceMembers.trackingFrom})::timestamptz)`,
+    ),
+    lt(
+      schema.requests.tsBucket,
+      sql`LEAST(${toTs}, COALESCE(${schema.workspaceMembers.leftAt}, ${toTs}))`,
+    ),
+  ];
+}
+
+// Members a period's split must list: still active, or gone but present for part of it.
+// Someone who left before the period started contributed nothing and is dropped.
+function inPeriodMember(from: Date): SQL {
+  return or(isNull(schema.workspaceMembers.leftAt), gte(schema.workspaceMembers.leftAt, from))!;
+}
+
 planRoute.get('/:workspaceId/split', async (c) => {
   const userId = c.get('userId');
   const wsId = c.req.param('workspaceId');
@@ -109,6 +135,7 @@ planRoute.get('/:workspaceId/split', async (c) => {
         and(
           eq(schema.workspaceMembers.workspaceId, wsId),
           eq(schema.workspaceMembers.userId, userId),
+          activeMember,
         ),
       )
       .limit(1);
@@ -123,7 +150,7 @@ planRoute.get('/:workspaceId/split', async (c) => {
 
     const { from, to } = currentPeriod(ws.billingCycleDay);
     const monthlyPriceUsd = ws.monthlyPriceUsd === null ? 0 : Number(ws.monthlyPriceUsd);
-    const fromTs = sql`${from.toISOString()}::timestamptz`;
+    const usageWindow = memberUsageWindow(from, to);
 
     const memberRows = await db
       .select({
@@ -132,13 +159,14 @@ planRoute.get('/:workspaceId/split', async (c) => {
         expectedShareBps: schema.workspaceMembers.expectedShareBps,
         trackingFrom: schema.workspaceMembers.trackingFrom,
         joinedAt: schema.workspaceMembers.joinedAt,
+        leftAt: schema.workspaceMembers.leftAt,
         name: schema.users.name,
         email: schema.users.email,
         avatarUrl: schema.users.avatarUrl,
       })
       .from(schema.workspaceMembers)
       .innerJoin(schema.users, eq(schema.users.id, schema.workspaceMembers.userId))
-      .where(eq(schema.workspaceMembers.workspaceId, wsId));
+      .where(and(eq(schema.workspaceMembers.workspaceId, wsId), inPeriodMember(from)));
 
     // Split semantics (intentional): a shared plan covers ALL of each member's
     // agent usage — sessions are joined by user_id only, NOT scoped to this
@@ -165,17 +193,9 @@ planRoute.get('/:workspaceId/split', async (c) => {
       .leftJoin(schema.sessions, eq(schema.sessions.userId, schema.workspaceMembers.userId))
       .leftJoin(
         schema.requests,
-        and(
-          eq(schema.requests.sessionId, schema.sessions.id),
-          gte(schema.requests.tsBucket, from),
-          lt(schema.requests.tsBucket, to),
-          gte(
-            schema.requests.tsBucket,
-            sql`GREATEST(${fromTs}, (${schema.workspaceMembers.trackingFrom})::timestamptz)`,
-          ),
-        ),
+        and(eq(schema.requests.sessionId, schema.sessions.id), ...usageWindow),
       )
-      .where(eq(schema.workspaceMembers.workspaceId, wsId))
+      .where(and(eq(schema.workspaceMembers.workspaceId, wsId), inPeriodMember(from)))
       .groupBy(schema.workspaceMembers.userId);
 
     const usageByUser = new Map(usageRows.map((r) => [r.userId, r]));
@@ -222,6 +242,7 @@ planRoute.get('/:workspaceId/split', async (c) => {
           avatarUrl: m.avatarUrl,
           trackingFrom: m.trackingFrom,
           joinedAt: m.joinedAt,
+          leftAt: m.leftAt,
           expectedShareBps: m.expectedShareBps,
           expectedSharePercent,
           usagePercent,
@@ -259,18 +280,10 @@ planRoute.get('/:workspaceId/split', async (c) => {
         and(
           eq(schema.workspaceMembers.workspaceId, wsId),
           eq(schema.workspaceMembers.userId, schema.sessions.userId),
+          inPeriodMember(from),
         ),
       )
-      .where(
-        and(
-          gte(schema.requests.tsBucket, from),
-          lt(schema.requests.tsBucket, to),
-          gte(
-            schema.requests.tsBucket,
-            sql`GREATEST(${fromTs}, (${schema.workspaceMembers.trackingFrom})::timestamptz)`,
-          ),
-        ),
-      )
+      .where(and(...usageWindow))
       .groupBy(schema.sessions.userId, sql`DATE(${schema.requests.tsBucket} AT TIME ZONE 'UTC')`);
 
     const daysRemaining = Math.max(0, Math.ceil((to.getTime() - Date.now()) / 86400000));
@@ -311,6 +324,6 @@ planRoute.get('/:workspaceId/split', async (c) => {
     });
   } catch (err) {
     console.error('[plan/split]', err);
-    return c.json({ ok: false, error: (err as Error).message ?? String(err) }, 500);
+    return c.json({ ok: false, error: 'internal server error' }, 500);
   }
 });

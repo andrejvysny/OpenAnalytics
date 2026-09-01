@@ -11,6 +11,7 @@ interface MembersResp {
     expectedShareBps: number | null;
     trackingFrom: string;
     joinedAt: string;
+    leftAt: string | null;
     name: string;
     email: string;
   }[];
@@ -41,6 +42,14 @@ async function updateMemberAction(formData: FormData) {
   redirect(`/plan/${workspaceId}/settings`);
 }
 
+async function removeMemberAction(formData: FormData) {
+  'use server';
+  const workspaceId = String(formData.get('workspaceId') ?? '');
+  const memberId = String(formData.get('memberId') ?? '');
+  await api(`/api/workspaces/${workspaceId}/members/${memberId}`, { method: 'DELETE' });
+  redirect(`/plan/${workspaceId}/settings`);
+}
+
 export default async function SettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const me = await readMe();
   if (!me) redirect('/login');
@@ -51,6 +60,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
   const membersResp = await api<MembersResp>(`/api/workspaces/${id}/members`);
   const members = membersResp?.members ?? [];
   if (!workspace) redirect('/settings/workspaces');
+  const canRemove = workspace.role === 'owner' && !workspace.isPersonal;
 
   return (
     <DashLayout user={me} workspaces={workspaces}>
@@ -117,6 +127,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
               <th>Tracking from</th>
               <th>Custom weight %</th>
               <th></th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -126,7 +137,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
                   <div style={{ fontWeight: 600 }}>{m.name}</div>
                   <div className="muted" style={{ fontSize: 12 }}>{m.email}</div>
                 </td>
-                <td><span className={`pill ${m.role === 'owner' ? '' : 'muted'}`}>{m.role}</span></td>
+                <td>
+                  <span className={`pill ${m.role === 'owner' ? '' : 'muted'}`}>{m.role}</span>
+                  {m.leftAt && <span className="pill muted" style={{ marginLeft: 6 }}>left</span>}
+                </td>
                 <td colSpan={3}>
                   <form action={updateMemberAction} className="inline-form">
                     <input type="hidden" name="workspaceId" value={id} />
@@ -144,10 +158,25 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
                     <button className="ghost" type="submit">Save</button>
                   </form>
                 </td>
+                <td>
+                  {canRemove && m.role !== 'owner' && !m.leftAt && (
+                    <form action={removeMemberAction}>
+                      <input type="hidden" name="workspaceId" value={id} />
+                      <input type="hidden" name="memberId" value={m.userId} />
+                      <button className="ghost" type="submit">Remove</button>
+                    </form>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {canRemove && (
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+            Removing a member revokes their access immediately. Usage they logged before the
+            removal still counts toward this billing period&apos;s split.
+          </div>
+        )}
       </div>
     </DashLayout>
   );

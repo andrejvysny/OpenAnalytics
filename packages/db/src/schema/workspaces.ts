@@ -1,5 +1,6 @@
 import {
   date,
+  index,
   integer,
   numeric,
   pgEnum,
@@ -46,8 +47,15 @@ export const workspaceMembers = pgTable(
     expectedShareBps: integer('expected_share_bps'),
     trackingFrom: date('tracking_from').notNull(),
     joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
+    // Soft-remove marker: membership is ACTIVE iff left_at IS NULL. The row is kept
+    // so past-period billing splits still attribute the member's pre-leave usage.
+    leftAt: timestamp('left_at', { withTimezone: true }),
   },
-  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] })],
+  // user_id lookup runs on every authenticated page load (workspace list / personal-ws resolve).
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.userId] }),
+    index('workspace_members_user_idx').on(t.userId),
+  ],
 );
 
 export const invites = pgTable('invites', {

@@ -79,3 +79,24 @@ TOK-5/LOG-3 recompute `agentKind` hardcode; TOK-3/4 hour-floored `ts` (decide in
 3. Migration: switch to journaled `drizzle-kit migrate`, or keep guarded `push --force`? (BLK-1)
 4. `extra_total`: redefine to residual, or drop until multi-agent ingest exists? (TOK-2)
 5. Multi-agent ingest (codex/opencode/gemini) in scope for v1, or is `oa usage` local-only the only multi-agent surface? (gates several latent items)
+
+---
+
+# Production-Readiness Remediation v2 (2026-08-02)
+
+Source: second multi-agent review (API/ops, CLI/parser, web/billing/DB) + inline verification. Prior open Qs resolved: hour-flooring kept (comment fixed); split semantics kept ("all member usage", now clamped by `left_at`); target bar = solid personal/team deploy.
+
+**DONE — all verified (`pnpm -r typecheck` ×6 clean; parser 59, CLI 32, API 68 tests green):**
+
+- Correctness: sync wedge fixed both ends (server per-session validation via `SyncRequestEnvelope` + CLI pre-validate/quarantine-and-advance); `overview.top_projects` user-scoped (v1 fix-log claimed done, wasn't); `plan/split` no longer leaks raw error text; `handleAssistant` null-safe; `oa login` fails loudly on bad key; sync `/salt` returns typed 400/403.
+- Pricing: `normalizeModel` handles version-first Claude 3.x ids + `fable` tier; seed refreshed 2026-08-02 (Claude 5 family, Opus 4.8, Sonnet 5 intro→regular via `effective_from` boundary, historical 3.x rows). Run `recompute-costs.ts` after deploy. Reasoning tokens: claude-code JSONL has no reasoning split (billed inside output_tokens) — always 0 by design, documented in aggregate.ts.
+- DB: `0002` drops dead `daily_stats`, adds `api_keys(prefix, user_id)` + `workspace_members(user_id)` indexes; `0003` adds `workspace_members.left_at`.
+- Security: hono secure-headers; Caddy HSTS/XCTO/XFO/Referrer-Policy; global 256KB body cap (sync keeps 16MB); rate limits on sync (120/min/user), api-keys/workspaces/invites/account; web `middleware.ts` auth backstop; Secure flag on re-issued cookie; request-id + one-line access log, id in error logs.
+- CLI: shared `fetchWithRetry` (salt fetch now has timeout+backoff); lock uses pid-liveness + mtime heartbeat (crashed daemon reclaims immediately, long runs never raced).
+- Features: member remove/leave (`left_at` soft-remove, rejoin via invite, split clamps `LEAST(period_to, left_at)`); account export (JSON, own rows, requests/prompts excluded by design) + deletion (password-gated, transactional, blocks while shared ws has other active members).
+- Ops: daily pg_dump sidecar + retention + restore docs; compose resource limits; image-pinning docs; docs truth-pass (sendProjectName default, snapshot-test claim, requests.ts comment); dead code removed (reader.ts, queue.jsonl).
+- Tests: API harness (bun:test vs `oa_test` DB, name-guarded, migration-applied, truncate-between); CI runs api tests against the existing Postgres service.
+
+**Backlog (deliberate, per decision):** email verification; CI security scanning (dependabot/audit/ESLint config); macOS/Windows code signing; CLI↔API version gate; per-batch cursor persistence / incremental parse; retention policy; Sentry/metrics; multi-agent cloud ingest. Known warts pinned by tests: `plan.ts` returns member `sessions`/`prompts` counts as strings; `message: []` passes the aggregate guard (harmless zero-token row).
+
+**Deploy steps (manual):** push master → CI builds GHCR → swarm01 redeploy from GHCR (replaces node-local builds) → verify prod DB has the drizzle journal (a `push`-built DB must be baselined before `migrate` applies 0002/0003) → run `recompute-costs.ts`.

@@ -7,10 +7,42 @@ export interface SyncOptions {
   workspaceId: string | null;
 }
 
+const TIMEOUT_MS = 30_000;
+const MAX_ATTEMPTS = 6;
+
+// Shared timeout + exponential-backoff retry: aborts after TIMEOUT_MS, retries
+// on network error or 429/5xx (up to MAX_ATTEMPTS), leaves other statuses to the caller.
+async function fetchWithRetry(url: string | URL, init: RequestInit, attempt = 1): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (attempt < MAX_ATTEMPTS) {
+      await backoff(attempt);
+      return fetchWithRetry(url, init, attempt + 1);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+  if ((res.status === 429 || res.status >= 500) && attempt < MAX_ATTEMPTS) {
+    await backoff(attempt);
+    return fetchWithRetry(url, init, attempt + 1);
+  }
+  return res;
+}
+
+async function backoff(attempt: number): Promise<void> {
+  const delay = Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
+  await new Promise((resolve) => setTimeout(resolve, delay));
+}
+
 export async function fetchWorkspaceSalt(opts: SyncOptions): Promise<string> {
   const url = new URL(`${opts.apiUrl}/api/sync/salt`);
   if (opts.workspaceId) url.searchParams.set('workspace_id', opts.workspaceId);
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     headers: {
       authorization: `Bearer ${opts.apiKey}`,
       'x-oa-cli-version': VERSION,
@@ -33,48 +65,21 @@ export interface SyncResult {
   failed: string[];
 }
 
-export async function postSync(
-  opts: SyncOptions,
-  sessions: Session[],
-  attempt = 1,
-): Promise<SyncResult> {
+export async function postSync(opts: SyncOptions, sessions: Session[]): Promise<SyncResult> {
   const body: SyncRequest = { workspace_id: opts.workspaceId, sessions };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
-  let res: Response;
-  try {
-    res = await fetch(`${opts.apiUrl}/api/sync`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${opts.apiKey}`,
-        'content-type': 'application/json',
-        'x-oa-cli-version': VERSION,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (attempt < 6) {
-      await backoff(attempt);
-      return postSync(opts, sessions, attempt + 1);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const res = await fetchWithRetry(`${opts.apiUrl}/api/sync`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${opts.apiKey}`,
+      'content-type': 'application/json',
+      'x-oa-cli-version': VERSION,
+    },
+    body: JSON.stringify(body),
+  });
   if (res.status === 200) {
     const j = (await res.json()) as { accepted: number; ignored: number; failed?: string[] };
     return { accepted: j.accepted, ignored: j.ignored, failed: j.failed ?? [] };
   }
-  if ((res.status === 429 || res.status >= 500) && attempt < 6) {
-    await backoff(attempt);
-    return postSync(opts, sessions, attempt + 1);
-  }
   const text = await res.text().catch(() => '');
   throw new Error(`sync failed: ${res.status} ${text}`);
-}
-
-async function backoff(attempt: number): Promise<void> {
-  const delay = Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
-  await new Promise((resolve) => setTimeout(resolve, delay));
 }

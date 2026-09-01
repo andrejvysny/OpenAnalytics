@@ -1,0 +1,4 @@
+[test]
+# Creates/migrates the `oa_test` database and repoints DATABASE_URL at it before any
+# test module loads. See src/test/setup.ts.
+preload = ["./src/test/setup.ts"]

@@ -1,31 +1,10 @@
 import { redirect } from 'next/navigation';
-import { cookies, headers } from 'next/headers';
-import { api, apiPost, readMe } from '../../../lib/api';
+import { cookies } from 'next/headers';
+import { api, apiPost, publicApiUrl, readMe } from '../../../lib/api';
 import { DashLayout, type Workspace } from '../../../components/Layout';
 
 const INTERNAL_API =
   process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-
-// Resolve the public-facing URL the CLI should hit.
-// Always derived from the incoming request so any self-hosted domain works
-// without baking it into the image or env. Behind a reverse proxy (Traefik /
-// nginx / Caddy / Cloudflare), x-forwarded-host + x-forwarded-proto give the
-// public origin. In local dev without a proxy the api lives on a different
-// port than the dashboard; PUBLIC_API_URL is then a dev-only escape hatch.
-// NEXT_PUBLIC_API_URL is intentionally NOT read — Next inlines it at build
-// time, which would re-hardcode the CI default into every image.
-async function publicApiUrl(): Promise<string> {
-  const h = await headers();
-  const xfHost = h.get('x-forwarded-host');
-  if (xfHost) {
-    const proto = h.get('x-forwarded-proto') ?? 'https';
-    return `${proto}://${xfHost}`;
-  }
-  if (process.env.PUBLIC_API_URL) return process.env.PUBLIC_API_URL;
-  const host = h.get('host');
-  if (host) return `http://${host}`;
-  return 'http://localhost:3001';
-}
 
 interface KeysResp {
   ok: boolean;

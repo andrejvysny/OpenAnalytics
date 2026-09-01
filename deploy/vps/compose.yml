@@ -32,6 +32,8 @@ services:
       - 'traefik.http.routers.oa-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}'
       - 'traefik.http.routers.oa-api.priority=10'
       - 'traefik.http.services.oa-api.loadbalancer.server.port=3001'
+    mem_limit: 768m
+    cpus: 1.0
 
   web:
     image: ghcr.io/andrejvysny/openanalytics-web:${OA_IMAGE_TAG:-latest}
@@ -54,6 +56,8 @@ services:
       - 'traefik.http.routers.oa-web.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}'
       - 'traefik.http.routers.oa-web.priority=1'
       - 'traefik.http.services.oa-web.loadbalancer.server.port=3000'
+    mem_limit: 768m
+    cpus: 1.0
 
 networks:
   internal:

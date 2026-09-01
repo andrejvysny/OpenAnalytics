@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@oa/db';
 import { db } from '../db';
 import { sessionAuth, type SessionVars } from '../middleware/auth-session';
+import { rateLimit } from '../middleware/rate-limit';
 import { env } from '../env';
 import { emailReady, sendInviteEmail } from '../services/email';
 import { currentPeriodStartIso } from '../services/billing';
 
 export const invitesRoute = new Hono<{ Variables: SessionVars }>();
+invitesRoute.use('*', rateLimit({ windowMs: 60_000, max: 60 }));
 invitesRoute.use('*', sessionAuth);
 
 class InviteError extends Error {
@@ -20,10 +22,71 @@ class InviteError extends Error {
   }
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function newToken(): string {
   const b = new Uint8Array(32);
   crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// Join or re-join, inside the caller's transaction. A previously-left member still owns
+// the (workspace_id, user_id) PK row, so revival is an UPDATE, never an INSERT.
+async function joinWorkspace(
+  tx: Tx,
+  invite: { workspaceId: string; role: 'owner' | 'member'; trackingFrom: string },
+  userId: string,
+): Promise<void> {
+  const [existing] = await tx
+    .select({ leftAt: schema.workspaceMembers.leftAt })
+    .from(schema.workspaceMembers)
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, invite.workspaceId),
+        eq(schema.workspaceMembers.userId, userId),
+      ),
+    )
+    .limit(1);
+  if (existing && existing.leftAt === null) return; // already an active member
+
+  // Enforce "at most one shared workspace" in the same tx (left rows don't count).
+  const [shared] = await tx
+    .select({ name: schema.workspaces.name })
+    .from(schema.workspaceMembers)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
+    .where(
+      and(
+        eq(schema.workspaceMembers.userId, userId),
+        eq(schema.workspaces.isPersonal, 0),
+        isNull(schema.workspaceMembers.leftAt),
+      ),
+    )
+    .limit(1);
+  if (shared) throw new InviteError(409, `already a member of shared workspace "${shared.name}"`);
+
+  if (!existing) {
+    await tx.insert(schema.workspaceMembers).values({
+      workspaceId: invite.workspaceId,
+      userId,
+      role: invite.role,
+      trackingFrom: invite.trackingFrom,
+    });
+    return;
+  }
+  // Re-join starts a fresh window: usage from before the departure must not resurface.
+  await tx
+    .update(schema.workspaceMembers)
+    .set({ leftAt: null, role: invite.role, trackingFrom: todayIso(), joinedAt: new Date() })
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, invite.workspaceId),
+        eq(schema.workspaceMembers.userId, userId),
+      ),
+    );
 }
 
 const Create = z.object({
@@ -57,6 +120,7 @@ invitesRoute.post('/', async (c) => {
         eq(schema.workspaceMembers.workspaceId, parsed.data.workspaceId),
         eq(schema.workspaceMembers.userId, userId),
         eq(schema.workspaceMembers.role, 'owner'),
+        isNull(schema.workspaceMembers.leftAt),
       ),
     )
     .limit(1);
@@ -158,38 +222,7 @@ invitesRoute.post('/:token/accept', async (c) => {
       if (inv.acceptedAt) throw new InviteError(410, 'already accepted');
       if (new Date(inv.expiresAt) < new Date()) throw new InviteError(410, 'expired');
 
-      const [existing] = await tx
-        .select({ id: schema.workspaceMembers.userId })
-        .from(schema.workspaceMembers)
-        .where(
-          and(
-            eq(schema.workspaceMembers.workspaceId, inv.workspaceId),
-            eq(schema.workspaceMembers.userId, userId),
-          ),
-        )
-        .limit(1);
-      if (!existing) {
-        // Enforce "at most one shared workspace" inside the same tx.
-        const [shared] = await tx
-          .select({ name: schema.workspaces.name })
-          .from(schema.workspaceMembers)
-          .innerJoin(
-            schema.workspaces,
-            eq(schema.workspaces.id, schema.workspaceMembers.workspaceId),
-          )
-          .where(
-            and(eq(schema.workspaceMembers.userId, userId), eq(schema.workspaces.isPersonal, 0)),
-          )
-          .limit(1);
-        if (shared)
-          throw new InviteError(409, `already a member of shared workspace "${shared.name}"`);
-        await tx.insert(schema.workspaceMembers).values({
-          workspaceId: inv.workspaceId,
-          userId,
-          role: inv.role,
-          trackingFrom: inv.trackingFrom,
-        });
-      }
+      await joinWorkspace(tx, inv, userId);
       await tx
         .update(schema.invites)
         .set({ acceptedAt: new Date() })

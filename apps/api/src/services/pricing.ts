@@ -35,24 +35,40 @@ const MAX_MEMO = 2000; // bound module-global caches on a long-lived server
 const UNPRICED_WARNED = new Set<string>();
 
 // Normalize raw model identifiers from JSONL into canonical price-table ids.
+// The canonical form is always TIER-FIRST (`claude-<tier>-<version>`), so the
+// version-first ids Anthropic used for the Claude 3.x family get rewritten.
 // Examples:
-//   "claude-opus-4-7-20251022" -> { exact: "claude-opus-4-7", family: "opus-4-7" }
-//   "claude-opus-4-7[1m]"      -> { exact: "claude-opus-4-7", family: "opus-4-7" }
+//   "claude-opus-4-7-20251022"    -> { exact: "claude-opus-4-7",  family: "opus-4-7" }
+//   "claude-opus-4-7[1m]"         -> { exact: "claude-opus-4-7",  family: "opus-4-7" }
 //   "anthropic/claude-sonnet-4-6" -> { exact: "claude-sonnet-4-6", family: "sonnet-4-6" }
+//   "claude-fable-5"              -> { exact: "claude-fable-5",   family: "fable-5" }
+//   "claude-3-5-haiku-20241022"   -> { exact: "claude-haiku-3-5", family: "haiku-3-5" }
+//   "claude-3-opus-20240229"      -> { exact: "claude-opus-3",    family: "opus-3" }
 export function normalizeModel(raw: string): { exact: string; family: string | null } {
   if (!raw) return { exact: raw, family: null };
   const lowered = raw.toLowerCase().trim();
   // Compaction-summary sessions from the Rust `vibenalytics` CLI carry the
   // synthetic placeholder model. They DO contain real usage tokens and
-  // therefore real cost — price them at the user's primary model (Opus 4.7).
+  // therefore real cost — price them at the user's primary model. Those rows
+  // are all 4.7-era, so this stays pinned to Opus 4.7 rather than tracking
+  // whatever the current Opus happens to be.
   if (lowered === '<synthetic>') return { exact: 'claude-opus-4-7', family: 'opus-4-7' };
   const noProvider = lowered.replace(/^anthropic\//, '');
   const noTier = noProvider.replace(/\[[^\]]*\]/g, '');
   const noDate = noTier.replace(/-\d{8}$/, '');
-  let family: string | null = null;
-  const m = noDate.match(/^claude-(opus|sonnet|haiku)-(\d+(?:-\d+)?)/);
-  if (m) family = `${m[1]}-${m[2]}`;
-  return { exact: noDate, family };
+
+  // Tier-first: claude-opus-4-7, claude-sonnet-5, claude-fable-5.
+  const tierFirst = noDate.match(/^claude-(opus|sonnet|haiku|fable)-(\d+(?:-\d+)?)/);
+  if (tierFirst) return { exact: noDate, family: `${tierFirst[1]}-${tierFirst[2]}` };
+
+  // Version-first (Claude 3.x): claude-3-5-haiku -> claude-haiku-3-5.
+  const versionFirst = noDate.match(/^claude-(\d+(?:-\d+)?)-(opus|sonnet|haiku)$/);
+  if (versionFirst) {
+    const family = `${versionFirst[2]}-${versionFirst[1]}`;
+    return { exact: `claude-${family}`, family };
+  }
+
+  return { exact: noDate, family: null };
 }
 
 async function loadPrice(db: Db, agentKind: string, model: string, at: Date) {
